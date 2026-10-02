@@ -1,0 +1,42 @@
+# --- Never committed (repo rules, section 3) --------------------------------
+# Your own copy of the games. Blake Stone is commercial software; nothing from
+# either game -- executables, VSWAP/VGAGRAPH/AUDIOT/MAPTEMP data, manuals --
+# is ever in this repository.
+original/
+*.BS1
+*.BS3
+*.BS6
+*.VSI
+*.EXE
+*.exe
+*.DIZ
+*.FRM
+*.DOC
+*.pdf
+
+# Everything generated from the game binaries: the unpacked image, the lifted
+# C (work/<game>/gen), dispatch-miss lists, recordings and frame dumps.
+work/
+
+# Saved games and CONFIG the games write at run time.
+saves/
+
+# --- Build output -------------------------------------------------------------
+build/
+build-*/
+out/
+dist/
+*.obj
+*.lib
+*.pdb
+*.ilk
+*.exp
+
+# --- Tooling ------------------------------------------------------------------
+__pycache__/
+*.pyc
+.vs/
+.vscode/
+*.user
+setup.log
+/screenshots/

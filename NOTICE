@@ -1,0 +1,18 @@
+Blake Stone recomp
+Copyright (c) 2026 sp00nz. MIT licensed; see LICENSE.
+
+This repository includes third-party code under its own licence:
+
+  third_party/ymfm/    ymfm, Yamaha FM sound chip emulation
+                       Copyright (c) 2021, Aaron Giles
+                       BSD 3-Clause License -- LICENSES/BSD-3-Clause-ymfm.txt
+                       https://github.com/aaronsgiles/ymfm
+                       Only the OPL family sources are vendored (opl, fm,
+                       adpcm, pcm), unmodified.
+
+It builds against, but does not include, the pcrecomp toolkit (MIT):
+https://github.com/sp00nznet/pcrecomp
+
+Blake Stone: Aliens of Gold and Blake Stone: Planet Strike are commercial
+software (JAM Productions / Apogee Software / 3D Realms). Neither game, nor
+anything generated from either game's executable, is part of this repository.

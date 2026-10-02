@@ -1,0 +1,40 @@
+# Build, test, lint on every push and PR (repo rules, section 8).
+#
+# The games are commercial and never in the repository, so CI cannot lift or
+# play them: it builds the runtime's selftest (the hardware models, no game
+# data), checks the Python, and runs the conformance harness, which reports
+# each game as skipped. The full 23-check run happens where the game data is;
+# see docs/conformance.md.
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-test:
+    runs-on: windows-2022
+    env:
+      # the toolkit revision this repo needs; README "Building from source"
+      PCRECOMP_REF: work/blakestone-integration
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: sp00nznet/pcrecomp
+          ref: ${{ env.PCRECOMP_REF }}
+          path: _pcrecomp
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Lint (Python compiles)
+        run: python -m py_compile tools/lift.py tools/conformance.py
+      - name: Configure
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64 "-DPCRECOMP_HOME=${{ github.workspace }}/_pcrecomp"
+      - name: Build selftest
+        run: cmake --build build --config Release --target selftest
+      - name: Selftest
+        run: build/Release/selftest.exe
+      - name: Conformance (skips without game data)
+        run: python tools/conformance.py
