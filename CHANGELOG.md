@@ -35,11 +35,11 @@ V1.01). Conformance 12/12 and 11/11.
 
 ### Toolkit
 Needs these pcrecomp changes, made for these games and opened as separate PRs:
-- `tools/drm/unlzexe.py` — LZEXE 0.90/0.91 unpacking.
-- decode16/lift16: Borland's `INT 3Eh` emulator shortcuts; 387 `fsin`/`fcos`/`fsincos`.
-- decode16: `mov` to/from FS and GS decoded as ES/CS.
-- recomp16 `cpu.h`: 32-bit `ESI EDI EBP ESP`.
-- lift16: self-modified immediates and self-modified branch opcodes.
+- `tools/drm/unlzexe.py` — LZEXE 0.90/0.91 unpacking (pcrecomp#35).
+- decode16/lift16: Borland's `INT 3Eh` emulator shortcuts; 387 `fsin`/`fcos`/`fsincos`. (pcrecomp#36)
+- decode16: `mov` to/from FS and GS decoded as ES/CS. (pcrecomp#37)
+- recomp16 `cpu.h`: 32-bit `ESI EDI EBP ESP`. (pcrecomp#38)
+- lift16: self-modified immediates and self-modified branch opcodes. (pcrecomp#39)
 
 [Unreleased]: https://github.com/sp00nznet/blakestone/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/sp00nznet/blakestone/releases/tag/v0.1.0
