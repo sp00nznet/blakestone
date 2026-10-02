@@ -194,15 +194,60 @@ static void toggle_fullscreen(void)
     }
 }
 
+/* Display modes (F11 cycles, --display picks):
+ *   sharp  4:3, nearest neighbour -- what a 1993 monitor's geometry was
+ *   pixel  the largest whole multiple of the frame, square pixels (16:10)
+ *   crt    4:3 with scanlines: every source row lit in its middle and dimmed
+ *          at its edges, as an electron beam drew it                       */
+static const char *display_names[] = { "sharp", "pixel", "crt" };
+static int display_mode;
+static uint32_t *crt_buf;
+static size_t crt_cap;
+
+static void crt_compose(int w, int h)
+{
+    if ((size_t)w * h > crt_cap) {
+        free(crt_buf);
+        crt_cap = (size_t)w * h;
+        crt_buf = malloc(crt_cap * 4);
+    }
+    for (int y = 0; y < h; y++) {
+        /* where in its source row this output line falls: 0..255 */
+        int pos = (int)(((int64_t)y * fh * 256 / h) & 255);
+        int d = pos < 128 ? pos : 255 - pos;          /* 0 at the edges, 127 mid-row */
+        int gain = 150 + d * 106 / 127;               /* 150..256: edges ~60% bright */
+        const uint32_t *src = frame + (y * fh / h) * fw;
+        uint32_t *o = crt_buf + (size_t)y * w;
+        for (int x = 0; x < w; x++) {
+            uint32_t p = src[x * fw / w];
+            uint32_t r = ((p >> 16) & 255) * gain >> 8, g = ((p >> 8) & 255) * gain >> 8,
+                     b = (p & 255) * gain >> 8;
+            o[x] = 0xFF000000u | r << 16 | g << 8 | b;
+        }
+    }
+}
+
 static void paint(HDC dc)
 {
     RECT r; GetClientRect(wnd, &r);
-    int cw = r.right, ch = r.bottom;
-    int w = cw, h = cw * 3 / 4;                     /* every mode is shown at 4:3 */
-    if (h > ch) { h = ch; w = ch * 4 / 3; }
+    int cw = r.right, ch = r.bottom, w, h;
+    if (display_mode == 1) {                          /* pixel: whole multiples */
+        int k = cw / fw < ch / fh ? cw / fw : ch / fh;
+        if (k < 1) k = 1;
+        w = fw * k; h = fh * k;
+    } else {                                          /* sharp, crt: 4:3 */
+        w = cw; h = cw * 3 / 4;
+        if (h > ch) { h = ch; w = ch * 4 / 3; }
+    }
     int x = (cw - w) / 2, y = (ch - h) / 2;
     PatBlt(dc, 0, 0, cw, y, BLACKNESS); PatBlt(dc, 0, y + h, cw, ch - y - h, BLACKNESS);
     PatBlt(dc, 0, 0, x, ch, BLACKNESS); PatBlt(dc, x + w, 0, cw - x - w, ch, BLACKNESS);
+    if (display_mode == 2 && h >= fh * 2) {
+        crt_compose(w, h);
+        bmi.bmiHeader.biWidth = w; bmi.bmiHeader.biHeight = -h;
+        SetDIBitsToDevice(dc, x, y, w, h, 0, 0, 0, h, crt_buf, &bmi, DIB_RGB_COLORS);
+        return;
+    }
     bmi.bmiHeader.biWidth = fw; bmi.bmiHeader.biHeight = -fh;
     SetStretchBltMode(dc, COLORONCOLOR);
     StretchDIBits(dc, x, y, w, h, 0, 0, fw, fh, frame, &bmi, DIB_RGB_COLORS, SRCCOPY);
@@ -219,6 +264,7 @@ static LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         if (wp == VK_RETURN && (lp & (1 << 29))) { if (!up) toggle_fullscreen(); return 0; }
         if (wp == VK_F4 && (lp & (1 << 29))) { quit_req = 1; return 0; }
         if (wp == VK_F12) { if (!up) screenshot_key(); return 0; }
+        if (wp == VK_F11) { if (!up) { display_mode = (display_mode + 1) % 3; InvalidateRect(h, NULL, FALSE); } return 0; }
         if (!up && (lp & (1 << 30))) return 0;      /* the game does its own repeat */
         int sc = (lp >> 16) & 0xFF;
         if (lp & (1 << 24)) kbd_scancode(0xE0);
@@ -374,6 +420,8 @@ void host_init(void)
     bmi.bmiHeader.biSize = sizeof bmi.bmiHeader;
     bmi.bmiHeader.biPlanes = 1; bmi.bmiHeader.biBitCount = 32; bmi.bmiHeader.biCompression = BI_RGB;
     if (g_opt.fullscreen) toggle_fullscreen();
+    for (int i = 0; i < 3; i++)
+        if (g_opt.display && !strcmp(g_opt.display, display_names[i])) display_mode = i;
     if (!g_opt.mute) wave_open();
 #endif
 }

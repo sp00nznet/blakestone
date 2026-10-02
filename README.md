@@ -234,6 +234,7 @@ bstone_ps.exe  [options] [-- game arguments]
 |---|---|
 | `--fullscreen` | start fullscreen; **Alt+Enter** toggles |
 | `--scale N` | window size in multiples of 320×240 (default 3) |
+| `--display MODE` | `sharp` (4:3, the default), `pixel` (whole multiples, square pixels) or `crt` (4:3 with scanlines); **F11** cycles them |
 | `--mute` | no sound |
 | `--data DIR` / `--save DIR` | game files / where CONFIG and saved games go |
 | `--headless` | no window and no audio device (works over RDP and in CI); time is deterministic, so runs are reproducible and faster than real time |

@@ -12,6 +12,9 @@ All notable changes to this project are documented here. The format follows
 - Gamepad: an XInput pad drives the games through the keys they already use
   (no in-game joystick calibration). Untested with real hardware.
 - `--realtime`, to put a headless run back on the wall clock.
+- Display modes, cycled with F11 or chosen with `--display`: `sharp` (4:3,
+  as before), `pixel` (whole multiples, square pixels) and `crt` (4:3 with
+  scanlines, each source row bright in the middle and dimmed at its edges).
 
 ### Changed
 - Headless runs use deterministic time: each interrupt poll advances 300 µs,

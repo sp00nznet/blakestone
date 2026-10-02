@@ -24,6 +24,7 @@ typedef struct {
     const char *args;         /* game command line tail */
     int scale;                /* window scale factor */
     int fullscreen;
+    const char *display;      /* sharp | pixel | crt */
     int realtime;             /* headless, but on the wall clock */
 } Options;
 extern Options g_opt;

@@ -15,8 +15,8 @@
 The recompile preserves the game exactly; these are the things worth adding on
 top of it, roughly in order of how much love per hour they give.
 
-- **Display**: integer scaling as an option beside 4:3, a CRT/scanline filter
-  for those who want 1993 back, and vsync'd presentation.
+- **Display**: vsync'd presentation (sharp, pixel-perfect and CRT modes are in),
+  and a CRT mode with a little horizontal bloom.
 - **Audio**: an OPL3 option (ymfm has it) and a proper resampler for the
   Sound Blaster's 7 kHz effects.
 - **A native renderer at high resolution.** The engine's view is drawn by two

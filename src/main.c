@@ -15,6 +15,7 @@
  *   --mute            silence
  *   --scale N         window size, multiples of 320x240 (default 3)
  *   --fullscreen      start fullscreen (Alt+Enter toggles)
+ *   --display MODE    sharp (4:3, default), pixel (whole multiples) or crt (F11 cycles)
  *   --trace           log DOS calls to stderr
  *   --shot FILE.bmp   write the last frame at exit
  *   --shot-at LIST    frames at emulated times: "ms:file.bmp,..."
@@ -74,6 +75,7 @@ int main(int argc, char **argv)
         else if (!strcmp(a, "--scale") && v) { g_opt.scale = atoi(v); i++; }
         else if (!strcmp(a, "--fullscreen")) g_opt.fullscreen = 1;
         else if (!strcmp(a, "--realtime")) g_opt.realtime = 1;
+        else if (!strcmp(a, "--display") && v) { g_opt.display = v; i++; }
         else if (!strcmp(a, "--shot") && v) { shot = v; i++; }
         else if (!strcmp(a, "--")) {
             for (i++; i < argc; i++) {
