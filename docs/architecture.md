@@ -93,6 +93,16 @@ count it is waiting on.
 If the host falls far behind (a debugger, a slow disk), the backlog of ticks is
 dropped rather than replayed, which the game sees as a short time warp.
 
+**Which clock.** In a window, emulated time is the wall clock, so the game
+plays at its real speed. Headless, it is deterministic: each `recomp_tick` (one
+per 2000 back-edges, or per waiting DOS/BIOS call) advances it by 300 µs, and
+DOS reports 28 October 1994, noon plus emulated time. A headless run then
+depends only on the guest and its inputs, never on host load. Two runs with the
+same arguments and save folder produce byte-identical frames, and a minute of
+play takes about four seconds of host time. Before this, the conformance
+scripts raced Planet Strike's title fade and lost at random. `--realtime` puts
+a headless run back on the wall clock.
+
 ## Video
 
 The engine runs in Mode X: BIOS mode 13h with chain-4 turned off. VRAM is

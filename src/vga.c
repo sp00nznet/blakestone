@@ -148,7 +148,7 @@ static uint64_t t0_us;
 static uint8_t input_status(void)
 {
     static uint8_t de;
-    uint64_t us = host_us() - t0_us;
+    uint64_t us = emu_us() - t0_us;
     uint64_t ph = us % 14286;
     de ^= 1;                                           /* display enable flickers per line */
     return (uint8_t)(((ph >= 12900) ? 0x08 : 0) | ((ph >= 12900) ? 1 : de));
@@ -256,4 +256,4 @@ void vga_compose(uint32_t *out, int *w, int *h)
     }
 }
 
-void vga_start(void) { t0_us = host_us(); }
+void vga_start(void) { t0_us = emu_us(); }

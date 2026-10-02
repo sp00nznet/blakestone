@@ -24,6 +24,7 @@ typedef struct {
     const char *args;         /* game command line tail */
     int scale;                /* window scale factor */
     int fullscreen;
+    int realtime;             /* headless, but on the wall clock */
 } Options;
 extern Options g_opt;
 
@@ -45,7 +46,9 @@ void mouse_host(int dx, int dy, int buttons);
 int  machine_port_in(uint16_t port, uint8_t *v);
 int  machine_port_out(uint16_t port, uint8_t v);
 void call_vector(CPU *cpu, unsigned vec);    /* run whatever is in the IVT, as INT would */
-uint64_t pit_now(void);               /* emulated time in PIT ticks (1.193182 MHz) */
+uint64_t pit_now(void);
+uint64_t emu_us(void);                /* see machine.c: wall clock, or deterministic */
+void machine_report(void);               /* emulated time in PIT ticks (1.193182 MHz) */
 #define PIT_HZ 1193182.0
 
 /* vga.c */

@@ -6,7 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Saving and loading are checked by the conformance harness: a mission saved
+  from the in-game menu, then loaded in a fresh process. 14/14 and 13/13.
+- Gamepad: an XInput pad drives the games through the keys they already use
+  (no in-game joystick calibration). Untested with real hardware.
+- `--realtime`, to put a headless run back on the wall clock.
+
 ### Changed
+- Headless runs use deterministic time: each interrupt poll advances 300 µs,
+  and DOS reports a fixed date. Runs are reproducible frame for frame and about
+  13x faster than real time; the harness went from ~15 minutes to ~1. Before
+  this, the menu scripts raced Planet Strike's title fade and failed at random.
+- The windowed build has now run (on an offstage virtual monitor): 4:3 window,
+  real time, intro through gameplay.
 - Setup and CI pin pcrecomp to commit `fc852e3` (its `main` with #35–#39
   merged) instead of the `work/blakestone-integration` branch. Lifting against
   it reproduces the same C byte for byte; conformance still 12/12 and 11/11.

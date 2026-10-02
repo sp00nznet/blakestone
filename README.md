@@ -42,17 +42,17 @@ section 10): the toolkit ships, the output never does.
 | AdLib music and FM effects (ymfm OPL2) | ✅ | ✅ |
 | Sound Blaster digitized sound (DMA + IRQ) | ✅ | ✅ |
 | PC speaker | modelled, untested | modelled, untested |
+| Saving and loading | ✅ | ✅ |
+| Windowed play (4:3, real time) | ✅ | ✅ |
 | Mouse (raw input) | implemented, untested | implemented, untested |
-| Joystick | — (reports none) | — |
-| Saving / loading | untested | untested |
-| Windowed play | builds; not yet run at a desktop | same |
+| Gamepad (XInput, as keys) | implemented, untested | implemented, untested |
 | Full playthrough | not yet | not yet |
-| **Conformance** ([docs](docs/conformance.md)) | **12/12** | **11/11** |
+| **Conformance** ([docs](docs/conformance.md)) | **14/14** | **13/13** |
 
-Everything above marked ✅ was seen working in headless recorded runs; the
-windowed path and the mouse were written but, at the time of writing, not yet
-run on a desktop. Treat this as an alpha: it will have bugs a full playthrough
-would find.
+Everything marked ✅ was seen working: in scripted headless runs, which the
+conformance harness repeats, and the window on a virtual monitor. Nobody has
+yet played either game end to end with hands on a keyboard, mouse or pad.
+Treat this as an alpha: it will have bugs a full playthrough would find.
 
 ## Screenshots
 
@@ -236,7 +236,8 @@ bstone_ps.exe  [options] [-- game arguments]
 | `--scale N` | window size in multiples of 320×240 (default 3) |
 | `--mute` | no sound |
 | `--data DIR` / `--save DIR` | game files / where CONFIG and saved games go |
-| `--headless` | no window and no audio device (works over RDP and in CI) |
+| `--headless` | no window and no audio device (works over RDP and in CI); time is deterministic, so runs are reproducible and faster than real time |
+| `--realtime` | with `--headless`: run on the wall clock instead |
 | `--record out.mp4` | record video and audio (needs ffmpeg) |
 | `--seconds N` | quit after N seconds |
 | `--keys "ms:KEY,..."` | scripted input, e.g. `--keys "3000:ENTER,9000:ENTER"` |
@@ -244,7 +245,9 @@ bstone_ps.exe  [options] [-- game arguments]
 | `--trace` | log DOS calls and Sound Blaster commands to stderr |
 
 In the window: click to capture the mouse (it is released when the window loses
-focus), **F12** saves a screenshot to `screenshots\`, **Alt+F4** quits. The
+focus), **F12** saves a screenshot to `screenshots\`, **Alt+F4** quits. An Xbox-style
+pad works as the keys the games already use: stick or d-pad to move, **RT** fire,
+**LT** strafe, **A** use, **X** Enter, **RB** run, **B**/**Start** Esc, **Back** Tab. The
 games' own keys and options are unchanged; turn the mouse on in their
 *Controls* menu.
 

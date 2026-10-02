@@ -276,14 +276,37 @@ int  sb_irq_pending(void);
 int  sb_irq_line(void);
 void sb_irq_ack(void);
 
+/* Emulated time. Windowed it is the wall clock -- the game should feel like
+ * a game. Headless it is deterministic: every interrupt poll (one per 2000
+ * loop back-edges, or a DOS/BIOS call that waits) moves time on by POLL_US,
+ * so a run depends on the guest's own progress and never on how busy the
+ * host is. Scripted keys, frame grabs and recordings then land on the same
+ * screens every time; with wall-clock time the conformance scripts raced
+ * Planet Strike's title fade and lost. POLL_US is sized so the guest runs
+ * at roughly the speed of a fast 386 (docs/architecture.md, "Time"). */
+#define POLL_US 300
+static uint64_t virt_us, polls;
+
+uint64_t emu_us(void)
+{
+    return g_opt.headless && !g_opt.realtime ? virt_us : host_us() - t_start;
+}
+
+void machine_report(void)
+{
+    trace("[time] %llu polls, %.1f s emulated\n", (unsigned long long)polls, emu_us() / 1e6);
+}
+
 void recomp_tick(CPU *cpu)
 {
     static int busy;
     g_recomp_tick_budget = 2000;
     if (busy) return;
     busy = 1;
+    polls++;
+    virt_us += POLL_US;
 
-    uint64_t target = (uint64_t)((double)(host_us() - t_start) * (PIT_HZ / 1e6));
+    uint64_t target = (uint64_t)((double)emu_us() * (PIT_HZ / 1e6));
     if (target > next_t0 + (uint64_t)(PIT_HZ / 10)) {
         /* far behind (a long load, a debugger): drop the backlog rather than
          * replay a storm of ticks the game would see as a time warp anyway */

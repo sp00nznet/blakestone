@@ -20,6 +20,7 @@ quietly; --update records a new, higher figure.
 """
 import json
 import os
+import shutil
 import struct
 import subprocess
 import sys
@@ -129,6 +130,37 @@ def check_game(game):
         # checked here (docs/conformance.md).
         ok('play: Sound Blaster digitized playback', err.count('[sb] play') > 0,
            f"{err.count('[sb] play')} blocks")
+    # Save from inside a mission, then load it in a fresh process: ESC opens
+    # the LINC menu on NEW MISSION, and SAVE/LOAD MISSION are three up from it
+    # (wrapping past LOGOFF and BACK TO ...). The title waits for a key, so
+    # the load script presses ENTER well after it is up in both games.
+    out = os.path.join(base, 'save')
+    keys = ENTER_THROUGH + (',47000:UP+1500,50000:ESC,52000:UP,52500:UP,53000:UP,54000:ENTER,'
+                            '56000:ENTER,58000:14,58300:12,58600:1F,58900:14,60000:ENTER')
+    rc, err, errs = run(game, out, 63, keys, {})
+    saves = [f for f in os.listdir(os.path.join(out, 'save')) if f.upper().startswith('SAVEGAM0')]
+    size = os.path.getsize(os.path.join(out, 'save', saves[0])) if saves else 0
+    ok('save: a mission saves to slot 0', rc == 0 and size > 1000 and '[miss]' not in err,
+       f'{saves[0] if saves else "no file"}, {size} bytes')
+
+    load = os.path.join(base, 'load')
+    os.makedirs(os.path.join(load, 'save'), exist_ok=True)
+    for f in os.listdir(os.path.join(out, 'save')):
+        shutil.copy(os.path.join(out, 'save', f), os.path.join(load, 'save', f))
+    # Headless time is deterministic, so these land on the same screens every
+    # run. Planet Strike shows its credits after the title, so its menu is up
+    # rolls its credits after the title (a key there skips them, and is
+    # spent doing it), so it needs one more UP than Aliens of Gold. Measured
+    # frame by frame; a key pressed while a menu is still drawing is lost.
+    ups = {'aog': (21000, 23000, 25000), 'ps': (26000, 28000, 30000, 32000)}[game]
+    t = ups[-1] + 2000
+    keys = '3000:ENTER,17000:ENTER,' + ','.join(f'{u}:UP' for u in ups)
+    rc, err, errs = run(game, load, t / 1000 + 11, f'{keys},{t}:ENTER,{t + 3000}:ENTER',
+                        {'loaded': t + 10000})
+    view = region(read_bmp(os.path.join(load, 'loaded.bmp')), 16, 16, 304, 150)
+    ok('load: the saved mission loads into the 3D view',
+       rc == 0 and not errs and '[miss]' not in err and len(set(view)) >= 40,
+       f'{len(set(view))} colours')
     return results
 
 

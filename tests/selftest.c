@@ -18,6 +18,7 @@ void trace(const char *fmt, ...) { (void)fmt; }
 void fatal(const char *fmt, ...) { (void)fmt; abort(); }
 void host_audio(const int16_t *s, int frames) { (void)s; (void)frames; }
 uint64_t pit_now(void) { return 0; }
+uint64_t emu_us(void) { return 0; }
 
 static void out(uint16_t port, uint8_t v) { assert(vga_port_out(port, v) || audio_port_out(port, v)); }
 static uint8_t in(uint16_t port) { uint8_t v = 0; assert(vga_port_in(port, &v) || audio_port_in(port, &v)); return v; }

@@ -5,7 +5,9 @@ py tools/conformance.py            # check every game you have data and a build 
 py tools/conformance.py --update   # record the current counts as the new baseline
 ```
 
-Current figure (2026-10-02): **Aliens of Gold 12/12, Planet Strike 11/11.**
+Current figure (2026-10-02): **Aliens of Gold 14/14, Planet Strike 13/13.** The whole
+run takes about a minute: headless time is deterministic and runs faster than
+real time ([architecture](architecture.md#time)).
 
 ## What it checks, and why that is the ground truth
 
@@ -26,10 +28,19 @@ with scripted keys (`--keys`) and fixed-time frame grabs (`--shot-at`).
 | play: audio | the WAV the run wrote is near silent (OPL music and effects) |
 | play: Sound Blaster initialised | the game never reset the DSP, set a rate and turned the speaker on |
 | play: Sound Blaster digitized playback (*Aliens of Gold* only) | firing the pistol — a digitized sound — never started a DMA block |
+| save: a mission saves to slot 0 | ESC → SAVE MISSION → slot 0 → a typed name did not write a `SAVEGAM0` of more than 1 KB |
+| load: the saved mission loads into the 3D view | a fresh process, LOAD MISSION → slot 0, is not back in a textured view |
 
 *Planet Strike*'s starting pistol is an FM sound, and its digitized sounds
 depend on which actors turn up, so that game is not given the playback check:
 it would pass or fail by chance. It does get "initialised".
+
+The menu scripts are timed per game and were measured frame by frame (`--shot-at`).
+Two things that are easy to get wrong: a key pressed while a menu is still drawing
+is dropped, and a key pressed during Planet Strike's post-title credits skips them
+and is spent doing it. Because headless time is deterministic, once measured these
+land on the same frame every run. A save folder with different contents (a CONFIG,
+say) changes start-up timing, so the harness always starts from a fresh one.
 
 ## Baseline and regressions
 

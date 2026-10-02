@@ -2,17 +2,13 @@
 
 ## Next
 
-- **Play it at a desktop.** Everything so far was verified headless. Run the
-  windowed build, check the mouse capture, Alt+Enter, audio latency and that the
-  keyboard feels right; fix what turns up.
-- **A full playthrough of each game**, saving and loading along the way. Saved
-  games and the high-score table go through code no scripted run has reached yet.
-- **Gamepad.** The games read a joystick from port 201h. Map an XInput pad onto
-  it (axes as RC timings, two buttons), so *JOYSTICK ENABLED* works.
-- **A longer conformance script**: a door and an elevator, a pickup, an enemy
-  killed, a level change, a save and a load.
-- **Toolkit PRs merged**, and this repo pinned to a pcrecomp release instead of
-  a branch.
+- **Hands on.** The window has run on a virtual monitor; nobody has yet played
+  with a real keyboard, mouse or pad. Check mouse capture, Alt+Enter, the pad
+  mapping and audio latency; fix what turns up.
+- **A full playthrough of each game.** The high-score table, level changes and
+  the endings go through code no scripted run has reached yet.
+- **A longer conformance script**: an elevator to the next floor, a pickup, an
+  enemy killed.
 
 ## The remaster
 

@@ -6,7 +6,8 @@
  *
  *   --data DIR        the game's files (default: original/<game>)
  *   --save DIR        CONFIG and saved games (default: saves/<game>)
- *   --headless        no window, no audio device
+ *   --headless        no window, no audio device; time is deterministic
+ *   --realtime        headless, but run on the wall clock
  *   --record OUT.mp4  record video + audio through ffmpeg (implies nothing else;
  *                     combine with --headless for an unattended capture)
  *   --seconds N       quit after N seconds of emulated time
@@ -72,6 +73,7 @@ int main(int argc, char **argv)
         else if (!strcmp(a, "--trace")) g_opt.trace = 1;
         else if (!strcmp(a, "--scale") && v) { g_opt.scale = atoi(v); i++; }
         else if (!strcmp(a, "--fullscreen")) g_opt.fullscreen = 1;
+        else if (!strcmp(a, "--realtime")) g_opt.realtime = 1;
         else if (!strcmp(a, "--shot") && v) { shot = v; i++; }
         else if (!strcmp(a, "--")) {
             for (i++; i < argc; i++) {
@@ -99,6 +101,7 @@ int main(int argc, char **argv)
             if (g_funcs[i].addr == entry) { g_funcs[i].fn(&g_cpu); break; }
         fprintf(stderr, "[dos] the program returned without exiting\n");
     }
+    machine_report();
     if (shot) host_snapshot(shot);
     host_shutdown();
     return g_exit_code;

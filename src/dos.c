@@ -258,9 +258,27 @@ static int key_wait(int peek, uint16_t *out)
         if (peek) return 0;
         recomp_tick(&g_cpu);
 #ifdef _WIN32
-        Sleep(1);
+        if (!g_opt.headless || g_opt.realtime) Sleep(1);
 #endif
     }
+}
+
+/* The date and time DOS reports. Deterministic runs see 28 October 1994
+ * (Planet Strike's release day), noon plus emulated time, so nothing the
+ * game derives from the clock varies between runs. */
+static void dos_clock(struct tm *out)
+{
+    if (g_opt.headless && !g_opt.realtime) {
+        struct tm t = { 0 };
+        t.tm_year = 94; t.tm_mon = 9; t.tm_mday = 28; t.tm_hour = 12;
+        t.tm_sec = (int)(emu_us() / 1000000);
+        t.tm_isdst = -1;
+        mktime(&t);                                   /* normalise, fill tm_wday */
+        *out = t;
+        return;
+    }
+    time_t now = time(NULL);
+    *out = *localtime(&now);
 }
 
 /* ---- boot ------------------------------------------------------------------- */
@@ -374,12 +392,12 @@ void dos_int21(CPU *c)
         trace("[dos] set vector %02X -> %04X:%04X\n", c->al, c->ds, c->dx);
         break;
     }
-    case 0x2A: { time_t t = time(NULL); struct tm *tm = localtime(&t);
-        c->cx = (uint16_t)(tm->tm_year + 1900); c->dh = (uint8_t)(tm->tm_mon + 1);
-        c->dl = (uint8_t)tm->tm_mday; c->al = (uint8_t)tm->tm_wday; break; }
-    case 0x2C: { time_t t = time(NULL); struct tm *tm = localtime(&t);
-        c->ch = (uint8_t)tm->tm_hour; c->cl = (uint8_t)tm->tm_min; c->dh = (uint8_t)tm->tm_sec;
-        c->dl = (uint8_t)((host_us() / 10000) % 100); break; }
+    case 0x2A: { struct tm tm; dos_clock(&tm);
+        c->cx = (uint16_t)(tm.tm_year + 1900); c->dh = (uint8_t)(tm.tm_mon + 1);
+        c->dl = (uint8_t)tm.tm_mday; c->al = (uint8_t)tm.tm_wday; break; }
+    case 0x2C: { struct tm tm; dos_clock(&tm);
+        c->ch = (uint8_t)tm.tm_hour; c->cl = (uint8_t)tm.tm_min; c->dh = (uint8_t)tm.tm_sec;
+        c->dl = (uint8_t)((emu_us() / 10000) % 100); break; }
     case 0x2F: c->es = dta_seg; c->bx = dta_off; break;
     case 0x30: c->ax = 0x0005; c->bx = 0; c->cx = 0; break;   /* DOS 5.0 */
     case 0x33: if (c->al == 0) c->dl = 0; break;

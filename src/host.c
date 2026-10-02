@@ -292,6 +292,58 @@ static void wave_push(const int16_t *s, int frames)
 }
 #endif
 
+/* Gamepad: an XInput pad pressed as the keys the game already knows, so it
+ * works in the menus and in play with no joystick calibration. The games'
+ * own joystick support (port 201h) would want calibrating per session.
+ *   stick / d-pad  arrows        RT  Ctrl (fire)     LT  Alt (strafe)
+ *   A  Space (use)  X  Enter     RB  Right Shift (run)
+ *   B / Start  Esc               Back  Tab                               */
+typedef DWORD (WINAPI *XInputGetState_t)(DWORD, void *);
+
+static void pad_poll(void)
+{
+    static XInputGetState_t get;
+    static int tried;
+    static uint32_t held;
+    static const struct { uint32_t bit; uint8_t sc; uint8_t ext; } map[] = {
+        {1 << 0, 0x48, 1}, {1 << 1, 0x50, 1}, {1 << 2, 0x4B, 1}, {1 << 3, 0x4D, 1},
+        {1 << 4, 0x1D, 0}, {1 << 5, 0x38, 0}, {1 << 6, 0x39, 0}, {1 << 7, 0x1C, 0},
+        {1 << 8, 0x36, 0}, {1 << 9, 0x01, 0}, {1 << 10, 0x0F, 0}};
+    struct { DWORD packet; WORD buttons; BYTE lt, rt; SHORT lx, ly, rx, ry; } s;
+
+    if (!tried) {
+        HMODULE m;
+        tried = 1;
+        m = LoadLibraryA("xinput1_4.dll");
+        if (!m) m = LoadLibraryA("xinput9_1_0.dll");
+        if (m) get = (XInputGetState_t)GetProcAddress(m, "XInputGetState");
+    }
+    if (!get || get(0, &s) != ERROR_SUCCESS) return;
+
+    uint32_t now = 0;
+    WORD b = s.buttons;
+    if ((b & 0x0001) || s.ly >  12000) now |= 1 << 0;   /* up */
+    if ((b & 0x0002) || s.ly < -12000) now |= 1 << 1;   /* down */
+    if ((b & 0x0004) || s.lx < -12000) now |= 1 << 2;   /* left */
+    if ((b & 0x0008) || s.lx >  12000) now |= 1 << 3;   /* right */
+    if (s.rt > 64) now |= 1 << 4;
+    if (s.lt > 64) now |= 1 << 5;
+    if (b & 0x1000) now |= 1 << 6;                       /* A */
+    if (b & 0x4000) now |= 1 << 7;                       /* X */
+    if (b & 0x0200) now |= 1 << 8;                       /* RB */
+    if (b & (0x2000 | 0x0010)) now |= 1 << 9;            /* B, Start */
+    if (b & 0x0020) now |= 1 << 10;                      /* Back */
+
+    for (unsigned i = 0; i < sizeof map / sizeof map[0]; i++) {
+        uint32_t m = map[i].bit;
+        if ((now ^ held) & m) {
+            if (map[i].ext) kbd_scancode(0xE0);
+            kbd_scancode((uint8_t)(map[i].sc | ((now & m) ? 0 : 0x80)));
+        }
+    }
+    held = now;
+}
+
 void host_audio(const int16_t *s, int frames)
 {
     if (rec_audio) { fwrite(s, 4, frames, rec_audio); rec_samples += frames; }
@@ -347,6 +399,7 @@ void host_frame(void)
     last_present = now;
     MSG msg;
     while (PeekMessageA(&msg, NULL, 0, 0, PM_REMOVE)) { TranslateMessage(&msg); DispatchMessageA(&msg); }
+    if (GetForegroundWindow() == wnd) pad_poll();
     if (quit_req) dos_exit(0);
     vga_compose(frame, &fw, &fh);
     HDC dc = GetDC(wnd); paint(dc); ReleaseDC(wnd, dc);
