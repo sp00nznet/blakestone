@@ -190,12 +190,12 @@ is enough), Git. ffmpeg is optional (only `--record` needs it).
      4 undecodable targets, first: 285F:FFFE (in fn_28624), 2FC8:2E42 (in fn_329D0), 2FC8:25D7 (in fn_31DD2), 0C96:0C9C (in fn_0D5F6)
      32 self-modified code bytes
      1 far calls into nothing (stubbed as dispatch)
-     -> G:\recomp\pc\blakestone\work\aog\gen (7 files)
+     -> G:\recomp\pc\blakestone\work\aog\gen (7 files, 10 changed)
    > py tools\lift.py ps
    BS_FIRE.EXE: DGROUP 4450, 39 code segments, 1003 functions, 74568 instructions lifted, 285 stored code pointers, 0 extra entries, 88 switch tables
      2 undecodable targets, first: 3199:2F42 (in fn_348B1), 3199:25D7 (in fn_33AE2)
      32 self-modified code bytes
-     -> G:\recomp\pc\blakestone\work\ps\gen (7 files)
+     -> G:\recomp\pc\blakestone\work\ps\gen (7 files, 10 changed)
    ```
 
    The "undecodable targets" are branches in bytes that are never executed
