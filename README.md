@@ -47,7 +47,7 @@ section 10): the toolkit ships, the output never does.
 | Mouse (raw input) | implemented, untested | implemented, untested |
 | Gamepad (XInput, as keys) | implemented, untested | implemented, untested |
 | Full playthrough | not yet | not yet |
-| Hi-res 3D view (walls, floor, ceiling) | ✅ | ✅ |
+| Hi-res 3D view (walls, floor, ceiling, sprites) | ✅ | ✅ |
 | **Conformance** ([docs](docs/conformance.md)) | **16/16** | **15/15** |
 
 Everything marked ✅ was seen working: in scripted headless runs, which the
@@ -57,9 +57,9 @@ Treat this as an alpha: it will have bugs a full playthrough would find.
 
 ## The remaster: a hi-res 3D view
 
-In a window the 3D view is redrawn at 4× (1280×800): walls, floor and ceiling are
-sampled straight from the game's textures at full resolution, with the game's own
-lighting, while everything else is still the original code. **F10** compares it
+In a window the 3D view is redrawn at 4× (1280×800): walls, floor, ceiling, actors,
+objects and the weapon are drawn straight from the game's own art at full
+resolution, with the game's own lighting, while everything else is still the original code. **F10** compares it
 with the original; `--hires N` sets the scale. How it works, and why it asks the
 original raycaster rather than replacing it: [docs/renderer.md](docs/renderer.md).
 

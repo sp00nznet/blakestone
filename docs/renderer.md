@@ -1,8 +1,8 @@
 # The hi-res renderer
 
-`--hires N` (default 4 in a window; F10 toggles) redraws the 3D view's walls,
-floor and ceiling at N × 320 by N × 200, from the game's own textures, while the
-rest of the game — logic, HUD, sprites, menus — stays the lifted original.
+`--hires N` (default 4 in a window; F10 toggles) redraws the 3D view — walls,
+floor, ceiling and sprites — at N × 320 by N × 200, from the game's own art, while
+the rest of the game — logic, HUD, menus — stays the lifted original.
 
 | | |
 |---|---|
@@ -46,9 +46,34 @@ Every write to video memory is tagged with who made it: the wall scalers, the
 span drawers, or anything else (sprites, the weapon, the fizzle fade, text). The
 compositor layers by that tag: original pixels from "anything else" stay on top,
 then hi-res walls, then hi-res planes. Wall and floor edges are therefore exact
-at the output resolution, and sprites stay correctly in front of walls and behind
-nothing. Sprites themselves are still the original pixels, enlarged
-([ROADMAP](../ROADMAP.md)).
+at the output resolution. Sprite pixels are redrawn too (next section); a sprite
+whose capture cannot be fitted falls back to nothing rather than to stale pixels,
+so a failure shows as a missing sprite, not a smeared one.
+
+## Sprites
+
+Actors, objects and the weapon go through `ScaleLSShape`/`ScaleShape`, which
+call a per-column routine once per texel column with the sprite's height and the
+destination column; it writes with a Map Mask covering every pixel that texel
+column spans (1–4 at a time) and walks the column's posts —
+`{end·2, source, start·2}` words ending in 0 — in the shape's page, whose
+`t_compshape` header `{leftpix, rightpix, dataofs[]}` says which texel column
+those posts are.
+
+Capturing each call gives back the page, the height, the screen span and the
+texel column. Consecutive captures of the same page and height, split where the
+screen spans stop touching, are one sprite. A texel is `height/64` pixels wide
+(the art is square, 64 texels across a `height/2`-pixel half-height), and every
+span narrows the interval the sprite's centre can lie in; the fits agree to a
+fraction of a pixel. The sprite is then drawn at the output resolution from its
+own posts, through the shading table when the game used one, and hidden behind
+any hi-res wall column taller than it — the game's own test, in the same units
+(wall height = 4 × sprite height at equal distance).
+
+`find_renderer()` finds the masked post scalers as the functions that patch an
+`add ebp, imm32` and read `fs:` texels (shaded if they also read `gs:`), the
+per-column routines as their far callers, and the DGROUP far pointers those read
+the post list and the shading table through.
 
 A frame's captures are committed when the game flips pages (the CRTC start
 address changes; this engine writes only the high byte, its pages being 256-byte

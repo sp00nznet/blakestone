@@ -7,6 +7,9 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Hi-res sprites: actors, objects and the weapon are redrawn at the output
+  resolution from their own posts and shading, fitted from the per-column
+  routine the game already calls, and occluded by the hi-res walls.
 - The remaster: a hi-res 3D view (`--hires N`, default 4 in a window, F10
   toggles). Walls, floor and ceiling are redrawn at N x 320x200 from the games'
   own textures and lighting; the original raycaster and span drawer still run

@@ -19,10 +19,6 @@ top of it, roughly in order of how much love per hour they give.
   and a CRT mode with a little horizontal bloom.
 - **Audio**: an OPL3 option (ymfm has it) and a proper resampler for the
   Sound Blaster's 7 kHz effects.
-- **Hi-res sprites.** Walls, floor and ceiling are hi-res (docs/renderer.md);
-  actors, objects and the weapon are still the original pixels enlarged. The
-  same approach applies: capture each sprite post the masked scaler draws
-  (source column and scale) and resample it at the output resolution.
 - **Widescreen.** Needs the raycaster to cast more columns than the game's
   view has; the per-column capture would have to come from a native
   re-cast of the tile map, which is now located (docs/renderer.md).

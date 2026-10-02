@@ -40,6 +40,8 @@ typedef struct {
 } Frame;
 
 static Col cur[320], shown[320];
+#define WALLH_MAX (320 * 6)
+static double wallh[WALLH_MAX];          /* hi-res wall height (wallheight units) per output column */
 static Frame fcur, fshown;
 static int dirty, have;
 
@@ -156,18 +158,143 @@ static int plane_texel(double fx, double fy)
     return texel;
 }
 
+/* ---- sprites ---------------------------------------------------------------
+ *
+ * Actors, objects and the weapon are drawn a screen column at a time: the
+ * per-column routine gets the column's height (wallheight units) and walks the
+ * column's post list -- {end*2, source, start*2} words, terminated by 0 -- in
+ * the sprite's page, whose t_compshape header {leftpix, rightpix, dataofs[]}
+ * says which texel column that list belongs to. Capturing each column gives
+ * the sprite back: its page, its height and, by fitting the texel column of
+ * every captured screen column, its exact centre. Then it can be drawn at any
+ * resolution from its own posts, occluded by the hi-res walls the same way the
+ * game occludes it (a column is hidden where the wall is taller). */
+typedef struct {
+    uint16_t x, height, seg, off, shseg, shbase;
+    uint8_t shaded, w;          /* w: pixels the map mask covers */
+} SCol;
+
+typedef struct {
+    uint16_t seg, height, shseg, shbase;
+    uint8_t shaded;
+    double xc;                  /* the centre, in screen pixels */
+    int x0, x1;                 /* the screen columns the game drew */
+} Sprite;
+
+#define MAXSCOL 4096
+#define MAXSPR 256
+static SCol scols[MAXSCOL];
+static int nscols;
+static Sprite sprs[MAXSPR], sprs_shown[MAXSPR];
+static int nsprs, nsprs_shown;
+
+void hires_sprite_col(CPU *c, int shaded)
+{
+    const HiresVars *h = &g_hires;
+    if (!h->ok || !h->sp_cmdseg || nscols >= MAXSCOL) return;
+    uint16_t ds = c->ds;
+    SCol *k = &scols[nscols++];
+    int mask = vga_map_mask();
+    int plane = mask & 1 ? 0 : mask & 2 ? 1 : mask & 4 ? 2 : 3, w = 0;
+    while (plane + w < 4 && mask >> (plane + w) & 1) w++;   /* one call, several pixels */
+    k->w = (uint8_t)(w ? w : 1);
+    k->height = rd16(c->ss, (uint16_t)(c->sp + 4));    /* past the far return address */
+    k->x = (uint16_t)(rd16(c->ss, (uint16_t)(c->sp + 6)) * 4 + plane);   /* resolved at the flip */
+    k->seg = rd16(ds, h->sp_cmdseg);
+    k->off = rd16(ds, h->sp_cmdoff);
+    k->shaded = (uint8_t)shaded;
+    k->shseg = shaded ? rd16(ds, h->sp_shseg) : 0;
+    k->shbase = shaded ? (uint16_t)(rd16(ds, h->sp_shoff) & 0xFF00) : 0;
+}
+
+static uint16_t seg_word(uint16_t seg, unsigned off) { return (uint16_t)(g_cpu.mem[(seg * 16u + off) & 0xFFFFF] | g_cpu.mem[(seg * 16u + off + 1) & 0xFFFFF] << 8); }
+
+/* Which texel column of its shape a post list is. */
+static int shape_column(uint16_t seg, uint16_t off)
+{
+    int left = seg_word(seg, 0), right = seg_word(seg, 2);
+    if (left < 0 || right > 63 || left > right) return -1;
+    for (int k = 0; k <= right - left; k++)
+        if (seg_word(seg, 4 + 2 * k) == off) return left + k;
+    return -1;
+}
+
+/* Group the frame's columns into sprites and fit each one's centre. A pixel
+ * centre p shows texel column c when xc + (c-32)k <= p < xc + (c-31)k, with
+ * k = height/256 pixels per texel; every column narrows the interval. */
+static int cmp_px(const void *a, const void *b) { return ((const int *)a)[0] - ((const int *)b)[0]; }
+
+/* One sprite from columns already known to belong together: fit its centre.
+ * A texel is height/64 pixels wide (the art is square, so the sprite's half
+ * height is height/2), and pixel centre p shows texel column c when
+ * xc + (c-32)k <= p < xc + (c-31)k. Every column narrows the interval. */
+static void fit_one(const int (*pc)[3], int n, const SCol *proto)
+{
+    if (nsprs >= MAXSPR || n <= 0) return;
+    double k = proto->height / 64.0, lo = -1e9, hi = 1e9;
+    for (int m = 0; m < n; m++) {
+        /* every pixel centre of the span shows texel column c */
+        double a = pc[m][0] + pc[m][2] - 0.5 - (pc[m][1] - 31) * k;
+        double b = pc[m][0] + 0.5 - (pc[m][1] - 32) * k;
+        if (a > lo) lo = a;
+        if (b < hi) hi = b;
+    }
+    Sprite *sp = &sprs[nsprs++];
+    sp->seg = proto->seg; sp->height = proto->height;
+    sp->shaded = proto->shaded; sp->shseg = proto->shseg; sp->shbase = proto->shbase;
+    sp->x0 = pc[0][0]; sp->x1 = pc[n - 1][0] + pc[n - 1][2] - 1;
+    sp->xc = lo <= hi ? (lo + hi) / 2 : (sp->x0 + sp->x1 + 1) / 2.0;
+    if (getenv("BSTONE_SPRITE_DEBUG"))
+        fprintf(stderr, "[spr] seg=%04X h=%u cols=%d x=%d..%d xc=%.2f [%g,%g]\n",
+                sp->seg, sp->height, n, sp->x0, sp->x1, sp->xc, lo, hi);
+}
+
+/* Group the frame's columns into sprites: consecutive captures of the same
+ * shape at the same height, split wherever the screen columns are not
+ * contiguous (two copies of one object at one distance). */
+static void fit_sprites(unsigned start)
+{
+    static int pc[MAXSCOL][3];
+    nsprs = 0;
+    for (int i = 0; i < nscols; ) {
+        int j = i;
+        while (j < nscols && scols[j].seg == scols[i].seg && scols[j].height == scols[i].height) j++;
+        int n = 0;
+        for (int m = i; m < j; m++) {
+            int c = shape_column(scols[m].seg, scols[m].off);
+            if (c < 0) continue;
+            pc[n][0] = (int)((((unsigned)(scols[m].x - start * 4)) & 0x3FFFF) % 320);
+            pc[n][1] = c;
+            pc[n][2] = scols[m].w;
+            n++;
+        }
+        qsort(pc, n, sizeof pc[0], cmp_px);
+        int a = 0;
+        for (int m = 1; m <= n; m++)
+            if (m == n || pc[m][0] > pc[m - 1][0] + pc[m - 1][2]) {
+                fit_one((const int (*)[3])&pc[a], m - a, &scols[i]);
+                a = m;
+            }
+        i = j;
+    }
+    nscols = 0;
+}
+
 /* The game flips pages by moving the CRTC start address once a frame is
  * drawn; the columns captured since the last flip belong to that frame. */
 void hires_flip(void)
 {
     { static int n; if (getenv("BSTONE_HIRES_DEBUG") && n++ < 12)
         fprintf(stderr, "[hires] flip start=%04X dirty=%d spans=%d\n", vga_scan_start(), dirty, nspans); }
-    if (!dirty && !nspans) return;
+    if (!dirty && !nspans && !nscols) return;
     memcpy(shown, cur, sizeof shown);
     fshown = fcur;
     memset(cur, 0, sizeof cur);
     sh_seg = sh_seg_cur;
     fit_rows(vga_scan_start(), vga_row_bytes());
+    fit_sprites(vga_scan_start());
+    memcpy(sprs_shown, sprs, sizeof(Sprite) * nsprs);
+    nsprs_shown = nsprs;
     dirty = 0;
     have = 1;
 }
@@ -266,7 +393,7 @@ static int compose_inner(uint32_t *out, int S, int *w, int *h)
         const uint8_t *owr = ow[Y / S];
         uint32_t *o = out + (size_t)Y * W + vx0 * S;
         for (int x = vx0; x <= vx1; x++) {
-            int mine = owr[x] == DRAW_WALL || owr[x] == DRAW_PLANE;
+            int mine = owr[x] == DRAW_WALL || owr[x] == DRAW_PLANE || (owr[x] == DRAW_SPRITE && nsprs_shown);
             for (int k = 0; k < S; k++, o++, U += dU, V += dV) {
                 if (!mine) continue;
                 unsigned ui = (unsigned)(U >> 26) & 63, vi = (unsigned)(V >> 26) & 63;
@@ -281,6 +408,7 @@ static int compose_inner(uint32_t *out, int S, int *w, int *h)
     const Frame *f = &fshown;
     int ncol = vx1 - vx0 + 1;
     double yc = (double)(vy0 + f->centery) * S;               /* the horizon, in output rows */
+    for (int i = 0; i < WALLH_MAX; i++) wallh[i] = 0;
     for (int X = vx0 * S; X < (vx1 + 1) * S; X++) {
         double u = (X + 0.5) / S - 0.5 - vx0;
         int c0 = (int)floor(u);
@@ -300,6 +428,7 @@ static int compose_inner(uint32_t *out, int S, int *w, int *h)
                 tc = tb; hh = b->wh / 8.0; seg = b->seg;
             }
         }
+        if (X - vx0 * S < WALLH_MAX) wallh[X - vx0 * S] = hh * 8;
         if (hh <= 0) continue;
         /* The game's own column choice is ground truth: the sub-texel fraction
          * may move between the two neighbours' columns but never past them --
@@ -327,12 +456,51 @@ static int compose_inner(uint32_t *out, int S, int *w, int *h)
         uint32_t *o = out + (size_t)y_lo * W + X;
         for (int Y = y_lo; Y <= y_hi; Y++, o += W, R += dR) {
             uint8_t ox = ow[Y / S][x];
-            if (ox != DRAW_WALL && ox != DRAW_PLANE) continue;   /* sprite on top */
+            if (ox != DRAW_WALL && ox != DRAW_PLANE && !(ox == DRAW_SPRITE && nsprs_shown)) continue;
             int r = (int)(R >> 16);
             if (r < 0) r = 0; if (r > 63) r = 63;
             unsigned texel = mem[(tex + r) & 0xFFFFF];
             if (shade) texel = mem[(shade + texel) & 0xFFFFF];
             *o = pal[texel];
+        }
+    }
+    /* sprites, back to front as the game drew them, over everything but the
+     * overlays the game put on top of them (text, the fizzle) */
+    for (int si = 0; si < nsprs_shown; si++) {
+        const Sprite *sp = &sprs_shown[si];
+        double k = sp->height / 64.0, hh = sp->height / 2.0;   /* texel width; half height */
+        if (k <= 0) continue;
+        int left = seg_word(sp->seg, 0), right = seg_word(sp->seg, 2);
+        double xa = sp->xc + (left - 32) * k, xb = sp->xc + (right + 1 - 32) * k;
+        int X0 = (int)floor(xa * S), X1 = (int)ceil(xb * S);
+        if (X0 < vx0 * S) X0 = vx0 * S;
+        if (X1 > (vx1 + 1) * S) X1 = (vx1 + 1) * S;
+        uint32_t shade = sp->shaded ? (uint32_t)sp->shseg * 16 + sp->shbase : 0;
+        for (int X = X0; X < X1; X++) {
+            if (X - vx0 * S < WALLH_MAX && wallh[X - vx0 * S] > sp->height * 4.0) continue;   /* behind a wall (wall units) */
+            int c = (int)floor(((X + 0.5) / S - sp->xc) / k) + 32;
+            if (c < left || c > right) continue;
+            unsigned cmd = seg_word(sp->seg, 4 + 2 * (c - left));
+            int x = X / S;
+            for (int guard = 0; guard < 64; guard++, cmd += 6) {
+                int end = seg_word(sp->seg, cmd) >> 1;
+                if (!end) break;
+                int src = seg_word(sp->seg, cmd + 2), st = seg_word(sp->seg, cmd + 4) >> 1;
+                int Ya = (int)ceil(yc + (st - 32) / 32.0 * hh * S - 0.5);
+                int Yb = (int)ceil(yc + (end - 32) / 32.0 * hh * S - 0.5);
+                if (Ya < vy0 * S) Ya = vy0 * S;
+                if (Yb > (vy1 + 1) * S) Yb = (vy1 + 1) * S;
+                for (int Y = Ya; Y < Yb; Y++) {
+                    uint8_t ox = ow[Y / S][x];
+                    if (ox == DRAW_OTHER) continue;
+                    int r = (int)floor(32.0 + (Y + 0.5 - yc) / S / hh * 32.0);
+                    if (r < st) r = st;
+                    if (r >= end) r = end - 1;
+                    unsigned texel = mem[((uint32_t)sp->seg * 16 + (uint16_t)(src + r)) & 0xFFFFF];
+                    if (shade) texel = mem[(shade + texel) & 0xFFFFF];
+                    out[(size_t)Y * W + X] = pal[texel];
+                }
+            }
         }
     }
     return 1;

@@ -532,6 +532,39 @@ def find_renderer(entries, bodies, smc):
             if reg in names_ and seen.get(reg, 0) < len(names_[reg]):
                 v.setdefault(names_[reg][seen.get(reg, 0)], a)
                 seen[reg] = seen.get(reg, 0) + 1
+    # Sprites: the masked post scalers (a patched `add ebp, imm32` and fs:
+    # texels), and the per-column routines that call them, which take the
+    # column's height as their first argument and read the column's post
+    # list through a far pointer in DGROUP.
+    sprite_scalers = {}
+    for lin, s in seq.items():
+        if any(i.mnemonic == 'add' and repr(i.op1) == 'ebp' and i.offset + 3 in smc for i in s) and \
+                any(o is not None and o.type == OpType.MEM and o.seg == 'fs' for i in s for o in (i.op1, i.op2)):
+            shaded = any(o is not None and o.type == OpType.MEM and o.seg == 'gs'
+                         for i in s for o in (i.op1, i.op2))
+            sprite_scalers[lin] = shaded
+            hooks[lin] = 'sprite'
+            if shaded:
+                for k, i in enumerate(s):
+                    if repr(i.op1) == 'ax' and _mem(i.op2) is not None and k + 1 < len(s) \
+                            and repr(s[k + 1].op1) == 'gs':
+                        v['sp_shseg'] = _mem(i.op2)
+                    if repr(i.op1) == 'bx' and _mem(i.op2) is not None and i.mnemonic == 'mov':
+                        v.setdefault('sp_shoff', _mem(i.op2))
+    for lin, s in seq.items():
+        called = [i.op1.far_seg * 16 + i.op1.disp for i in s
+                  if i.mnemonic == 'call' and i.op1 is not None and i.op1.type == OpType.FAR]
+        hit = [t for t in called if t in sprite_scalers]
+        if not hit:
+            continue
+        hooks[lin] = ('scol', 1 if sprite_scalers[hit[0]] else 0)
+        for k, i in enumerate(s[:8]):
+            if (i.mnemonic == 'mov' and repr(i.op1) == 'ax' and _mem(i.op2) is not None and k + 1 < len(s)
+                    and repr(s[k + 1].op1) == 'dx' and _mem(s[k + 1].op2) is not None):
+                v.setdefault('sp_cmdseg', _mem(i.op2))
+                v.setdefault('sp_cmdoff', _mem(s[k + 1].op2))
+    v.setdefault('sp_shseg', 0)
+    v.setdefault('sp_shoff', 0)
     v.setdefault('pl_shseg', 0)
     v.setdefault('pl_shoff', 0)
     for lin, fl in plane_flags.items():
@@ -646,6 +679,12 @@ def main():
                 elif hook == 'wall':
                     f.write(f'void {names[lin]}(CPU *cpu) {{ int _t = g_draw_tag; g_draw_tag = DRAW_WALL; '
                             f'{names[lin]}_body(cpu); g_draw_tag = _t; }}\n\n')
+                elif hook == 'sprite':
+                    f.write(f'void {names[lin]}(CPU *cpu) {{ int _t = g_draw_tag; g_draw_tag = DRAW_SPRITE; '
+                            f'{names[lin]}_body(cpu); g_draw_tag = _t; }}\n\n')
+                elif hook and hook[0] == 'scol':          # ('scol', shaded)
+                    f.write(f'void {names[lin]}(CPU *cpu) {{ hires_sprite_col(cpu, {hook[1]}); '
+                            f'{names[lin]}_body(cpu); }}\n\n')
                 elif hook:                                # ('plane', what it draws)
                     f.write(f'void {names[lin]}(CPU *cpu) {{ int _t = g_draw_tag; g_draw_tag = DRAW_PLANE; '
                             f'hires_plane(cpu, {hook[1]}); {names[lin]}_body(cpu); g_draw_tag = _t; }}\n\n')
@@ -683,7 +722,7 @@ def main():
         hn = ('yint', 'xint', 'pixx', 'wallheight', 'postseg', 'postoff', 'lightflag',
               'normalshade', 'shademax', 'ls_seg', 'ls_off', 'centery',
               'pl_bp', 'pl_cx', 'pl_dxh', 'pl_dxl', 'pl_sih', 'pl_sil', 'pl_di', 'pl_texseg',
-              'pl_shseg', 'pl_shoff')
+              'pl_shseg', 'pl_shoff', 'sp_cmdseg', 'sp_cmdoff', 'sp_shseg', 'sp_shoff')
         f.write('const HiresVars g_hires = {' + ('1, ' if hv else '0, ')
                 + ', '.join(f'0x{hv.get(n, 0):04X}' for n in hn) + '};\n')
         f.write('const RecompFunc g_funcs[] = {\n')
