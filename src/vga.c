@@ -18,8 +18,12 @@
  */
 #include "machine.h"
 #include "recomp16/platform/font8x8.h"
+#ifdef BSTONE_DEBUG
+#include <intrin.h>
+#endif
 
 static uint8_t vram[0x40000];
+static uint8_t owner[0x40000];       /* DRAW_* tag of the last write to each pixel */
 static uint8_t latch[4];
 static uint8_t seq[8], gc[16], crtc[32], attr[32];
 static uint8_t seq_i, gc_i, crtc_i, attr_i, attr_flip;
@@ -84,11 +88,21 @@ int recomp_mem_write8(CPU *cpu, uint32_t a, uint8_t v)
     { void watch_write(uint32_t, uint8_t); watch_write(a, v); }
 #endif
     if (a - 0xA0000u >= 0x10000u) return 0;
+#ifdef BSTONE_DEBUG
+    { void vgaprof_note(void *ra); vgaprof_note(_ReturnAddress()); }
+#endif
     (void)cpu;
     uint32_t off = a - 0xA0000u;
-    if (chain4) { vram[off] = v; return 1; }           /* plane a&3, offset a>>2 */
+    if (chain4) { vram[off] = v; owner[off] = (uint8_t)g_draw_tag; return 1; }
     uint8_t mask = seq[2] & 0x0F;
     uint8_t *p = &vram[off * 4];
+    {   /* who wrote each pixel, for the hi-res compositor (src/hires.c) */
+        uint8_t *o = &owner[off * 4], t = (uint8_t)g_draw_tag;
+        if (mask & 1) o[0] = t;
+        if (mask & 2) o[1] = t;
+        if (mask & 4) o[2] = t;
+        if (mask & 8) o[3] = t;
+    }
     int wmode = gc[5] & 3;
     if (wmode == 0 && !(gc[1] & 0x0F) && !(gc[3]) && gc[8] == 0xFF) {
         if (mask & 1) p[0] = v;
@@ -192,7 +206,12 @@ int vga_port_out(uint16_t port, uint8_t v)
     case 0x3CE: gc_i = v; return 1;
     case 0x3CF: gc[gc_i & 15] = v; return 1;
     case 0x3D4: crtc_i = v; return 1;
-    case 0x3D5: crtc[crtc_i & 31] = v; return 1;
+    case 0x3D5:
+        crtc[crtc_i & 31] = v;
+        /* a page flip; the engine writes only the high byte (its pages are
+         * 256-byte aligned), so either register counts */
+        if ((crtc_i & 31) == 0x0C || (crtc_i & 31) == 0x0D) hires_flip();
+        return 1;
     }
     return 0;
 }
@@ -257,3 +276,13 @@ void vga_compose(uint32_t *out, int *w, int *h)
 }
 
 void vga_start(void) { t0_us = emu_us(); }
+
+/* ---- for the hi-res compositor ---------------------------------------- */
+
+const uint8_t *vga_vram(void) { return vram; }
+const uint8_t *vga_owner(void) { return owner; }
+int vga_unchained(void) { return mode == 0x13 && !chain4; }
+unsigned vga_scan_start(void) { return ((unsigned)crtc[0x0C] << 8) | crtc[0x0D]; }
+unsigned vga_row_bytes(void) { return crtc[0x13] ? crtc[0x13] * 2u : 80u; }
+uint32_t vga_color(int i) { return rgb(i); }
+int vga_map_mask(void) { return seq[2] & 0x0F; }

@@ -15,9 +15,22 @@
 #include <mmsystem.h>
 #endif
 
-static uint32_t frame[640 * 480];
-static uint32_t big[640 * 480];
+#define FRAME_MAX (1920 * 1200)                 /* 320x200 at --hires 6 */
+static uint32_t frame[FRAME_MAX];
+static uint32_t big[FRAME_MAX];
 static int fw = 320, fh = 200;
+static int scan_rows = 200;                     /* the CRT's rows behind the frame */
+static int hires_on;
+int hires_compose(uint32_t *out, int S, int *w, int *h);
+
+/* What is on screen now: the hi-res renderer's frame when it is on and the
+ * game is in its 3D mode, the plain VGA picture otherwise. */
+static void compose(void)
+{
+    if (hires_on && g_opt.hires > 0 && hires_compose(frame, g_opt.hires, &fw, &fh)) { scan_rows = 200; return; }
+    vga_compose(frame, &fw, &fh);
+    scan_rows = fh;
+}
 
 /* ---- recording ------------------------------------------------------------ */
 
@@ -37,15 +50,19 @@ static void wav_header(FILE *f, uint32_t frames)
     fwrite("data", 1, 4, f); fwrite(&data, 4, 1, f);
 }
 
+static int rec_w = 640, rec_h = 400;
+
 static void rec_open(void)
 {
+    if (g_opt.hires > 0) { rec_w = 320 * g_opt.hires; rec_h = 200 * g_opt.hires; }
     snprintf(rec_vpath, sizeof rec_vpath, "%s.video.mp4", g_opt.record);
     snprintf(rec_apath, sizeof rec_apath, "%s.audio.wav", g_opt.record);
     char cmd[1200];
     snprintf(cmd, sizeof cmd,
-             "ffmpeg -y -loglevel error -f rawvideo -pixel_format bgra -video_size 640x400 "
-             "-framerate %d -i - -vf scale=1280:960:flags=neighbor -c:v libx264 -pix_fmt yuv420p "
-             "-crf 18 \"%s\"", REC_FPS, rec_vpath);
+             "ffmpeg -y -loglevel error -f rawvideo -pixel_format bgra -video_size %dx%d "
+             "-framerate %d -i - -vf scale=%d:%d:flags=neighbor -c:v libx264 -pix_fmt yuv420p "
+             "-crf 18 \"%s\"", rec_w, rec_h, REC_FPS, rec_w < 1280 ? 1280 : rec_w,
+             (rec_w < 1280 ? 1280 : rec_w) * 3 / 4, rec_vpath);
 #ifdef _WIN32
     rec_video = _popen(cmd, "wb");
 #endif
@@ -69,13 +86,13 @@ static void rec_close(void)
     fprintf(stderr, "[rec] %s: %llu frames\n", g_opt.record, (unsigned long long)rec_frames);
 }
 
-/* 320x200 doubled, or text mode as is: always 640x400 to the encoder */
-static const uint32_t *as_640x400(void)
+/* Every frame to the encoder at one size, whatever mode the game is in */
+static const uint32_t *as_rec(void)
 {
-    if (fw == 640 && fh == 400) return frame;
-    for (int y = 0; y < 400; y++)
-        for (int x = 0; x < 640; x++)
-            big[y * 640 + x] = frame[(y * fh / 400) * fw + x * fw / 640];
+    if (fw == rec_w && fh == rec_h) return frame;
+    for (int y = 0; y < rec_h; y++)
+        for (int x = 0; x < rec_w; x++)
+            big[y * rec_w + x] = frame[(y * fh / rec_h) * fw + x * fw / rec_w];
     return big;
 }
 
@@ -213,7 +230,7 @@ static void crt_compose(int w, int h)
     }
     for (int y = 0; y < h; y++) {
         /* where in its source row this output line falls: 0..255 */
-        int pos = (int)(((int64_t)y * fh * 256 / h) & 255);
+        int pos = (int)(((int64_t)y * scan_rows * 256 / h) & 255);
         int d = pos < 128 ? pos : 255 - pos;          /* 0 at the edges, 127 mid-row */
         int gain = 150 + d * 106 / 127;               /* 150..256: edges ~60% bright */
         const uint32_t *src = frame + (y * fh / h) * fw;
@@ -242,7 +259,7 @@ static void paint(HDC dc)
     int x = (cw - w) / 2, y = (ch - h) / 2;
     PatBlt(dc, 0, 0, cw, y, BLACKNESS); PatBlt(dc, 0, y + h, cw, ch - y - h, BLACKNESS);
     PatBlt(dc, 0, 0, x, ch, BLACKNESS); PatBlt(dc, x + w, 0, cw - x - w, ch, BLACKNESS);
-    if (display_mode == 2 && h >= fh * 2) {
+    if (display_mode == 2 && h >= scan_rows * 2) {
         crt_compose(w, h);
         bmi.bmiHeader.biWidth = w; bmi.bmiHeader.biHeight = -h;
         SetDIBitsToDevice(dc, x, y, w, h, 0, 0, 0, h, crt_buf, &bmi, DIB_RGB_COLORS);
@@ -264,6 +281,7 @@ static LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         if (wp == VK_RETURN && (lp & (1 << 29))) { if (!up) toggle_fullscreen(); return 0; }
         if (wp == VK_F4 && (lp & (1 << 29))) { quit_req = 1; return 0; }
         if (wp == VK_F12) { if (!up) screenshot_key(); return 0; }
+        if (wp == VK_F10) { if (!up) hires_on = !hires_on; return 0; }
         if (wp == VK_F11) { if (!up) { display_mode = (display_mode + 1) % 3; InvalidateRect(h, NULL, FALSE); } return 0; }
         if (!up && (lp & (1 << 30))) return 0;      /* the game does its own repeat */
         int sc = (lp >> 16) & 0xFF;
@@ -401,6 +419,8 @@ void host_audio(const int16_t *s, int frames)
 
 void host_init(void)
 {
+    if (g_opt.hires < 0) g_opt.hires = g_opt.headless ? 0 : 4;   /* on in a window */
+    hires_on = g_opt.hires > 0;
     keys_parse();
     if (g_opt.record) rec_open();
     if (g_opt.wav && (wav_out = fopen(g_opt.wav, "wb")) != NULL) wav_header(wav_out, 0);
@@ -436,9 +456,9 @@ void host_frame(void)
     if (rec_video) {
         uint64_t per = (uint64_t)(PIT_HZ / REC_FPS);
         if ((rec_frames + 1) * per <= now) {
-            vga_compose(frame, &fw, &fh);
-            const uint32_t *f = as_640x400();
-            while ((rec_frames + 1) * per <= now) { fwrite(f, 4, 640 * 400, rec_video); rec_frames++; }
+            compose();
+            const uint32_t *f = as_rec();
+            while ((rec_frames + 1) * per <= now) { fwrite(f, 4, (size_t)rec_w * rec_h, rec_video); rec_frames++; }
         }
     }
 #ifdef _WIN32
@@ -449,7 +469,7 @@ void host_frame(void)
     while (PeekMessageA(&msg, NULL, 0, 0, PM_REMOVE)) { TranslateMessage(&msg); DispatchMessageA(&msg); }
     if (GetForegroundWindow() == wnd) pad_poll();
     if (quit_req) dos_exit(0);
-    vga_compose(frame, &fw, &fh);
+    compose();
     HDC dc = GetDC(wnd); paint(dc); ReleaseDC(wnd, dc);
 #endif
 }
@@ -458,7 +478,7 @@ void host_frame(void)
  * it got to. */
 void host_snapshot(const char *path)
 {
-    vga_compose(frame, &fw, &fh);
+    compose();
     FILE *f = fopen(path, "wb");
     if (!f) return;
     uint32_t sz = 54 + fw * fh * 4, off = 54, hs = 40, zero = 0, img = fw * fh * 4;

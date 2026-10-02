@@ -47,12 +47,29 @@ section 10): the toolkit ships, the output never does.
 | Mouse (raw input) | implemented, untested | implemented, untested |
 | Gamepad (XInput, as keys) | implemented, untested | implemented, untested |
 | Full playthrough | not yet | not yet |
-| **Conformance** ([docs](docs/conformance.md)) | **14/14** | **13/13** |
+| Hi-res 3D view (walls, floor, ceiling) | ✅ | ✅ |
+| **Conformance** ([docs](docs/conformance.md)) | **16/16** | **15/15** |
 
 Everything marked ✅ was seen working: in scripted headless runs, which the
 conformance harness repeats, and the window on a virtual monitor. Nobody has
 yet played either game end to end with hands on a keyboard, mouse or pad.
 Treat this as an alpha: it will have bugs a full playthrough would find.
+
+## The remaster: a hi-res 3D view
+
+In a window the 3D view is redrawn at 4× (1280×800): walls, floor and ceiling are
+sampled straight from the game's textures at full resolution, with the game's own
+lighting, while everything else is still the original code. **F10** compares it
+with the original; `--hires N` sets the scale. How it works, and why it asks the
+original raycaster rather than replacing it: [docs/renderer.md](docs/renderer.md).
+
+| *Aliens of Gold*: original · hi-res | *Planet Strike*: original · hi-res |
+|---|---|
+| ![original and hi-res, Aliens of Gold](docs/screenshots/hires-aog.png) | ![original and hi-res, Planet Strike](docs/screenshots/hires-ps.png) |
+
+Also: three display modes (sharp 4:3, pixel-perfect, CRT scanlines — **F11**),
+OPL2 music through ymfm, saves kept apart from the game install, an XInput pad,
+and a built-in recorder.
 
 ## Screenshots
 
@@ -234,6 +251,7 @@ bstone_ps.exe  [options] [-- game arguments]
 |---|---|
 | `--fullscreen` | start fullscreen; **Alt+Enter** toggles |
 | `--scale N` | window size in multiples of 320×240 (default 3) |
+| `--hires N` | hi-res 3D view at N × 320×200 (default 4 in a window, off headless); **F10** toggles |
 | `--display MODE` | `sharp` (4:3, the default), `pixel` (whole multiples, square pixels) or `crt` (4:3 with scanlines); **F11** cycles them |
 | `--mute` | no sound |
 | `--data DIR` / `--save DIR` | game files / where CONFIG and saved games go |
@@ -287,6 +305,7 @@ later `main` should work too. See [CHANGELOG](CHANGELOG.md).
 |------|---------------|
 | [architecture](docs/architecture.md) | The parts, memory map, how time and interrupts work |
 | [lifting](docs/lifting.md) | Everything that took real time: LZEXE, the 8087 emulator, 386 code, self-modifying code, switch tables, finding functions nothing calls |
+| [renderer](docs/renderer.md) | The hi-res 3D view: asking the original raycaster, compositing by who drew each pixel |
 | [conformance](docs/conformance.md) | What the harness checks and why that is the ground truth |
 | [ROADMAP](ROADMAP.md) | What's next — including the real remaster work |
 

@@ -27,6 +27,20 @@ void     x87_arith(int op, double *dst, double src);
 void     x87_unhandled(const char *what);
 void     x87_emu3e(CPU *cpu, uint8_t fn);
 
+/* ---- the hi-res renderer's hooks (tools/lift.py wraps these in; src/hires.c) ---- */
+enum { DRAW_OTHER = 0, DRAW_WALL = 1, DRAW_PLANE = 2 };
+extern int g_draw_tag;                   /* who is writing video memory right now */
+void hires_hit(CPU *cpu);                /* after each of the raycaster's Hit* calls */
+void hires_flip(void);                   /* the CRTC start address changed */
+void hires_plane(CPU *cpu, int what);    /* before a floor/ceiling span: 1 ceiling, 2 floor, 4 shaded */
+typedef struct {
+    int ok;                              /* found in this game's code at lift time */
+    uint16_t yint, xint, pixx, wallheight, postseg, postoff;
+    uint16_t lightflag, normalshade, shademax, ls_seg, ls_off, centery;
+    uint16_t pl_bp, pl_cx, pl_dxh, pl_dxl, pl_sih, pl_sil, pl_di, pl_texseg, pl_shseg, pl_shoff;
+} HiresVars;
+extern const HiresVars g_hires;
+
 /* ---- services ---- */
 void dos_int21(CPU *cpu);
 void bios_int10(CPU *cpu);

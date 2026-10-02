@@ -396,3 +396,40 @@ void watch_write(uint32_t a, uint8_t v)
     fprintf(stderr, "[watch] %05X = %02X\n", a, v);
     host_backtrace();
 }
+
+/* BSTONE_VGAPROF=1 (debug builds): which lifted functions write video memory,
+ * by return address, symbolised at exit. Finds the wall scalers, the plane
+ * drawer and the sprite scalers without reading every routine. */
+#if defined(BSTONE_DEBUG) && defined(_WIN32)
+#include <intrin.h>
+static struct { void *ra; unsigned long n; } vp[256];
+static int vp_on = -1;
+void vgaprof_note(void *ra)
+{
+    if (vp_on < 0) vp_on = getenv("BSTONE_VGAPROF") != NULL;
+    if (!vp_on) return;
+    for (int i = 0; i < 256; i++) {
+        if (vp[i].ra == ra) { vp[i].n++; return; }
+        if (!vp[i].ra) { vp[i].ra = ra; vp[i].n = 1; return; }
+    }
+}
+void vgaprof_report(void)
+{
+    if (vp_on <= 0) return;
+    HANDLE p = GetCurrentProcess();
+    SymInitialize(p, NULL, TRUE);
+    char buf[sizeof(SYMBOL_INFO) + 128]; SYMBOL_INFO *si = (SYMBOL_INFO *)buf;
+    unsigned long tot[256] = {0}; char names[256][64]; int nn = 0;
+    for (int i = 0; i < 256 && vp[i].ra; i++) {
+        si->SizeOfStruct = sizeof(SYMBOL_INFO); si->MaxNameLen = 127;
+        const char *nm = SymFromAddr(p, (DWORD64)(size_t)vp[i].ra, NULL, si) ? si->Name : "?";
+        int k = 0;
+        for (; k < nn; k++) if (!strcmp(names[k], nm)) break;
+        if (k == nn) { strncpy(names[nn], nm, 63); names[nn][63] = 0; nn++; }
+        tot[k] += vp[i].n;
+    }
+    for (int k = 0; k < nn; k++) fprintf(stderr, "[vgaprof] %10lu %s\n", tot[k], names[k]);
+}
+#else
+void vgaprof_report(void) {}
+#endif

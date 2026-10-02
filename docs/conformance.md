@@ -5,7 +5,7 @@ py tools/conformance.py            # check every game you have data and a build 
 py tools/conformance.py --update   # record the current counts as the new baseline
 ```
 
-Current figure (2026-10-02): **Aliens of Gold 14/14, Planet Strike 13/13.** The whole
+Current figure (2026-10-02): **Aliens of Gold 16/16, Planet Strike 15/15.** The whole
 run takes about a minute: headless time is deterministic and runs faster than
 real time ([architecture](architecture.md#time)).
 
@@ -29,6 +29,8 @@ with scripted keys (`--keys`) and fixed-time frame grabs (`--shot-at`).
 | play: Sound Blaster initialised | the game never reset the DSP, set a rate and turned the speaker on |
 | play: Sound Blaster digitized playback (*Aliens of Gold* only) | firing the pistol — a digitized sound — never started a DMA block |
 | save: a mission saves to slot 0 | ESC → SAVE MISSION → slot 0 → a typed name did not write a `SAVEGAM0` of more than 1 KB |
+| hires: renderer found in the game's code | `find_renderer()` could not read the raycaster, scalers and span drawers out of this build |
+| hires: the 3D view is redrawn at 4x | the same moment at `--hires 4` is not 1280×800, or its view is the original enlarged (≤ 2% of pixels differ) |
 | load: the saved mission loads into the 3D view | a fresh process, LOAD MISSION → slot 0, is not back in a textured view |
 
 *Planet Strike*'s starting pistol is an FM sound, and its digitized sounds

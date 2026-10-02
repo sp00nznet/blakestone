@@ -25,6 +25,7 @@ typedef struct {
     int scale;                /* window scale factor */
     int fullscreen;
     const char *display;      /* sharp | pixel | crt */
+    int hires;                /* hi-res renderer scale, 0 off, -1 default */
     int realtime;             /* headless, but on the wall clock */
 } Options;
 extern Options g_opt;
@@ -62,6 +63,13 @@ int  vga_port_out(uint16_t port, uint8_t v);
 void vga_dac_set(int i, uint8_t r, uint8_t g, uint8_t b);
 void vga_dac_get(int i, uint8_t *r, uint8_t *g, uint8_t *b);
 void vga_compose(uint32_t *out, int *w, int *h);
+const uint8_t *vga_vram(void);
+const uint8_t *vga_owner(void);
+int vga_unchained(void);
+unsigned vga_scan_start(void);
+unsigned vga_row_bytes(void);
+uint32_t vga_color(int i);
+int vga_map_mask(void);
 
 /* audio.c: OPL2 (opl.cpp), Sound Blaster DSP + 8237 DMA, PC speaker */
 void audio_init(void);

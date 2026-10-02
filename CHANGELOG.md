@@ -7,6 +7,13 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- The remaster: a hi-res 3D view (`--hires N`, default 4 in a window, F10
+  toggles). Walls, floor and ceiling are redrawn at N x 320x200 from the games'
+  own textures and lighting; the original raycaster and span drawer still run
+  and are asked what each column and row shows, and the frame is composited by
+  who drew each pixel, so sprites, HUD and logic are untouched. Everything it
+  needs is found in each game's code at lift time (find_renderer). 1.4 ms a
+  frame at 4x. Conformance gains two checks: 16/16 and 15/15.
 - Saving and loading are checked by the conformance harness: a mission saved
   from the in-game menu, then loaded in a fresh process. 14/14 and 13/13.
 - Gamepad: an XInput pad drives the games through the keys they already use

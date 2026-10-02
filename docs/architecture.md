@@ -25,6 +25,7 @@ original/<game>/BS_*.EXE ──► tools/lift.py ──► work/<game>/gen/*.c �
 | VGA | Planar memory, latches, write modes, DAC, CRTC scanout, text mode | [`src/vga.c`](../src/vga.c) |
 | Audio | OPL2 (ymfm), Sound Blaster DSP + 8237 DMA, PC speaker, mixing | [`src/audio.c`](../src/audio.c), [`src/opl.cpp`](../src/opl.cpp) |
 | x87 | The FPU behind Borland's emulator interrupts | [`src/x87.c`](../src/x87.c) |
+| Hi-res renderer | Walls, floor and ceiling at N× from the game's own per-column and per-row answers | [`src/hires.c`](../src/hires.c), [renderer](renderer.md) |
 | Host | Win32 window, raw input, waveOut; or headless frames to ffmpeg | [`src/host.c`](../src/host.c) |
 | Harness | Scripted headless runs with pass/fail checks | [`tools/conformance.py`](../tools/conformance.py), [`tests/selftest.c`](../tests/selftest.c) |
 

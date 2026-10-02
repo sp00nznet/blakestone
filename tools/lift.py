@@ -388,6 +388,168 @@ def smc_targets(entries, bodies):
     return out
 
 
+def _mem(op):
+    """DGROUP offset of a plain `ds:[imm]` operand, else None."""
+    if op is not None and op.type in (OpType.MEM, OpType.MOFFS) and not op.base \
+            and not op.index and op.seg in ('', 'ds'):
+        return op.disp & 0xFFFF
+    return None
+
+
+def find_renderer(entries, bodies, smc):
+    """What the hi-res renderer (src/hires.c) needs, read out of this game's
+    own code so no address is written down per version. See docs/renderer.md.
+
+    Returns ({linear: hook}, {name: DGROUP offset}) or ({}, {}) with a
+    reason printed, in which case the build simply has no hi-res mode.
+      hook 'wall'  -- the self-modifying wall post scalers (tag their writes)
+      hook 'plane' -- the floor/ceiling span drawer (tag its writes)
+      hook 'hit'   -- the raycaster's six Hit* routines (capture each column)
+    """
+    seq = {lin: [b[a] for a in sorted(b)] for lin, b in bodies.items()}
+    hooks = {}
+    # The raycaster is the function whose branches are self-modified; the far
+    # calls in it are the Hit* routines, the first of them HitVertWall.
+    ray = [lin for lin, s in seq.items()
+           if any(i.mnemonic.startswith('j') and i.offset in smc for i in s)]
+    if len(ray) != 1:
+        print(f'  renderer: {len(ray)} raycaster candidates, hi-res off')
+        return {}, {}
+    hits = []
+    for i in seq[ray[0]]:
+        if i.mnemonic == 'call' and i.op1 is not None and i.op1.type == OpType.FAR:
+            t = i.op1.far_seg * 16 + i.op1.disp
+            if t in entries and t not in hits:
+                hits.append(t)
+    for t in hits:
+        hooks[t] = 'hit'
+    for lin, s in seq.items():
+        reads_gs = any(o is not None and o.type == OpType.MEM and o.seg == 'gs'
+                       for i in s for o in (i.op1, i.op2))
+        patched_add = any(i.mnemonic == 'add' and repr(i.op1) == 'edx' and i.offset + 3 in smc
+                          for i in s)
+        if reads_gs and patched_add:
+            hooks[lin] = 'wall'
+        if any(i.mnemonic == 'shld' for i in s) and any(
+                i.mnemonic == 'mov' and i.op1 is not None and i.op1.type == OpType.MEM
+                and i.op1.seg == 'es' and i.op1.base == 'bp' and i.op1.index == 'di' for i in s):
+            hooks[lin] = 'plane'
+
+    v = {}
+    hv = seq[hits[0]] if hits else []
+    for k, i in enumerate(hv):
+        m, a = i.mnemonic, _mem(i.op2)
+        if (m == 'mov' and repr(i.op1) == 'ax' and a is not None and k > 0
+                and hv[k - 1].mnemonic == 'mov' and repr(hv[k - 1].op1) == 'dx'
+                and _mem(hv[k - 1].op2) == a + 2):
+            v.setdefault('yint', a)                     # yintercept: dx:ax = [a+2]:[a]
+        if m == 'add' and _mem(i.op1) is not None and k + 1 < len(hv) and hv[k + 1].mnemonic == 'adc':
+            v.setdefault('xint', _mem(i.op1))           # xintercept, low word
+        if (m == 'mov' and repr(i.op1) == 'bx' and a is not None and k + 2 < len(hv)
+                and hv[k + 1].mnemonic == 'shl' and hv[k + 2].mnemonic == 'mov'
+                and hv[k + 2].op1 is not None and hv[k + 2].op1.type == OpType.MEM
+                and hv[k + 2].op1.base == 'bx' and repr(hv[k + 2].op2) == 'ax'):
+            v.setdefault('pixx', a)
+            v.setdefault('wallheight', hv[k + 2].op1.disp & 0xFFFF)
+        if m == 'mov' and _mem(i.op1) is not None and repr(i.op2) == 'ax':
+            v['postseg'] = _mem(i.op1)                  # the last one wins
+        if m == 'mov' and _mem(i.op1) is not None and repr(i.op2) == 'si':
+            v['postoff'] = _mem(i.op1)
+    # ScalePost: the near callee of HitVertWall that programs the Map Mask.
+    cs = entries[hits[0]] if hits else 0
+    for i in hv:
+        if i.mnemonic == 'call' and i.op1 is not None and i.op1.type == OpType.REL16:
+            sp = seq.get(cs * 16 + (i.op1.disp & 0xFFFF), [])
+            if not any(j.mnemonic == 'out' for j in sp):
+                continue
+            loads = [(k, _mem(j.op2)) for k, j in enumerate(sp)
+                     if j.mnemonic == 'mov' and repr(j.op1) == 'ax' and _mem(j.op2) is not None]
+            flag_at = None
+            for k, j in enumerate(sp):
+                # AOG: mov ax,[flag] / and ax,800h.  PS: test word [flag], 800h.
+                if (j.mnemonic == 'test' and _mem(j.op1) is not None and j.op2 is not None
+                        and (j.op2.disp & 0xFFFF) == 0x800):
+                    v['lightflag'], flag_at = _mem(j.op1), k
+                elif (j.mnemonic == 'and' and repr(j.op1) == 'ax' and (j.op2.disp & 0xFFFF) == 0x800
+                        and k > 0 and _mem(sp[k - 1].op2) is not None):
+                    v['lightflag'], flag_at = _mem(sp[k - 1].op2), k
+            after = [a for k, a in loads if flag_at is not None and k > flag_at]
+            if len(after) >= 2:
+                v['normalshade'], v['shademax'] = after[0], after[1]
+            for k, j in enumerate(sp):
+                if (j.mnemonic == 'mov' and repr(j.op1) == 'dx' and _mem(j.op2) is not None
+                        and k + 1 < len(sp) and repr(sp[k + 1].op1) == 'bx' and _mem(sp[k + 1].op2) is not None):
+                    v['ls_seg'], v['ls_off'] = _mem(j.op2), _mem(sp[k + 1].op2)
+            break
+    # The view's centre row: the wall scaler indexes ylookup with it.
+    for lin, kind in hooks.items():
+        if kind != 'wall':
+            continue
+        s = seq[lin]
+        for k, i in enumerate(s):
+            if (i.mnemonic == 'mov' and repr(i.op1) == 'ax' and _mem(i.op2) is not None
+                    and k + 2 < len(s) and s[k + 1].mnemonic == 'shl' and s[k + 2].mnemonic == 'add'
+                    and repr(s[k + 2].op1) == 'di'):
+                v.setdefault('centery', _mem(i.op2))
+    # The floor/ceiling span drawers: what each one writes, and their shared
+    # inputs (DGROUP words loaded in a fixed order, then the texture segment
+    # as an immediate). Planet Strike has four: shaded or not, with or without
+    # the ceiling row.
+    plane_flags = {}
+    for lin, kind in hooks.items():
+        if kind != 'plane':
+            continue
+        s = seq[lin]
+        fl = 0
+        for k, i in enumerate(s):
+            o = i.op1
+            if i.mnemonic == 'mov' and o is not None and o.type == OpType.MEM and o.seg == 'es':
+                if o.base == 'di' and not o.index:
+                    fl |= 1                               # the ceiling row, es:[di]
+                if o.base == 'bp' and o.index == 'di':
+                    fl |= 2                               # the floor row, es:[bp+di]
+            if any(op is not None and op.type == OpType.MEM and op.seg == 'fs' for op in (i.op1, i.op2)):
+                fl |= 4                                   # read through a shading table
+        plane_flags[lin] = fl
+        order = []
+        for k, i in enumerate(s):
+            if i.mnemonic == 'mov' and i.op1 is not None and i.op1.type == OpType.REG16:
+                a = _mem(i.op2)
+                if a is not None:
+                    order.append((repr(i.op1), a))
+                if (repr(i.op1) == 'ax' and i.op2 is not None and i.op2.type == OpType.IMM16
+                        and k + 1 < len(s) and repr(s[k + 1].op1) == 'ds'):
+                    v['pl_texseg'] = (i.op2.disp + LOAD_SEG) & 0xFFFF
+                if (repr(i.op1) == 'ax' and a is not None and k + 1 < len(s) and repr(s[k + 1].op1) == 'fs'):
+                    v['pl_shseg'] = a
+                if repr(i.op1) == 'bx' and i.op2 is not None and i.op2.type == OpType.MEM \
+                        and i.op2.seg == 'ss' and not i.op2.base:
+                    v['pl_shoff'] = i.op2.disp & 0xFFFF
+        names_ = {'bp': ['pl_bp'], 'cx': ['pl_cx'], 'dx': ['pl_dxh', 'pl_dxl'],
+                  'si': ['pl_sih', 'pl_sil'], 'di': ['pl_di']}
+        seen = {}
+        for reg, a in order:
+            if reg in names_ and seen.get(reg, 0) < len(names_[reg]):
+                v.setdefault(names_[reg][seen.get(reg, 0)], a)
+                seen[reg] = seen.get(reg, 0) + 1
+    v.setdefault('pl_shseg', 0)
+    v.setdefault('pl_shoff', 0)
+    for lin, fl in plane_flags.items():
+        hooks[lin] = ('plane', fl)
+
+    need = ('yint', 'xint', 'pixx', 'wallheight', 'postseg', 'postoff', 'lightflag',
+            'normalshade', 'shademax', 'ls_seg', 'ls_off', 'centery',
+            'pl_bp', 'pl_cx', 'pl_dxh', 'pl_dxl', 'pl_sih', 'pl_sil', 'pl_di', 'pl_texseg')
+    missing = [n for n in need if n not in v]
+    kinds = sorted(h if isinstance(h, str) else h[0] for h in hooks.values())
+    if missing or 'plane' not in kinds or 'wall' not in kinds or kinds.count('hit') != 6:
+        print(f'  renderer: not found ({", ".join(missing) or kinds}), hi-res off')
+        return {}, {}
+    print(f'  renderer: {kinds.count("wall")} wall scalers, {kinds.count("plane")} span drawers, 6 hit routines; '
+          + ' '.join(f'{n}={v[n]:04X}' for n in need))
+    return hooks, v
+
+
 def load_misses(path):
     out = set()
     if os.path.exists(path):
@@ -444,6 +606,7 @@ def main():
     lifter.iret_frame = True
     lifter.x87 = True
     lifter.smc_imm = smc_targets(entries, bodies)
+    hooks, hv = find_renderer(entries, bodies, lifter.smc_imm)
     print(f'  {len(lifter.smc_imm)} self-modified code bytes')
     lift16.DIV0_FN = 'recomp_div0'
 
@@ -469,13 +632,23 @@ def main():
                 lift16._CODE_SEG = f'{cs:04X}'
                 lifter.jump_tables = {ip: [cs * 16 + a for a in arms]
                                       for ip, arms in tables[lin].items()}
-                body = lifter.lift_function(names[lin], insts, cs * 16,
-                                            entry_addr=lin - cs * 16)
+                hook = hooks.get(lin)
+                body = lifter.lift_function(names[lin] + ('_body' if hook else ''), insts,
+                                            cs * 16, entry_addr=lin - cs * 16)
                 for line in body.split('\n'):
                     if 'UNHANDLED' in line or 'needs dispatch' in line:
                         k = line.split('/*')[-1].strip(' */')
                         unhandled[k] = unhandled.get(k, 0) + 1
                 f.write(body + '\n\n')
+                # Renderer hooks wrap the original, which runs unchanged.
+                if hook == 'hit':
+                    f.write(f'void {names[lin]}(CPU *cpu) {{ {names[lin]}_body(cpu); hires_hit(cpu); }}\n\n')
+                elif hook == 'wall':
+                    f.write(f'void {names[lin]}(CPU *cpu) {{ int _t = g_draw_tag; g_draw_tag = DRAW_WALL; '
+                            f'{names[lin]}_body(cpu); g_draw_tag = _t; }}\n\n')
+                elif hook:                                # ('plane', what it draws)
+                    f.write(f'void {names[lin]}(CPU *cpu) {{ int _t = g_draw_tag; g_draw_tag = DRAW_PLANE; '
+                            f'hires_plane(cpu, {hook[1]}); {names[lin]}_body(cpu); g_draw_tag = _t; }}\n\n')
 
     # A far call lift16 could not resolve names a function that does not
     # exist (in practice: bytes decoded past a call that never returns).
@@ -507,6 +680,12 @@ def main():
         f.write(f'const uint16_t g_entry_ss = 0x{im.ss:04X}, g_entry_sp = 0x{im.sp:04X};\n')
         f.write(f'const char g_game_id[] = "{game}";\n')
         f.write(f'const unsigned g_func_count = {len(order)};\n')
+        hn = ('yint', 'xint', 'pixx', 'wallheight', 'postseg', 'postoff', 'lightflag',
+              'normalshade', 'shademax', 'ls_seg', 'ls_off', 'centery',
+              'pl_bp', 'pl_cx', 'pl_dxh', 'pl_dxl', 'pl_sih', 'pl_sil', 'pl_di', 'pl_texseg',
+              'pl_shseg', 'pl_shoff')
+        f.write('const HiresVars g_hires = {' + ('1, ' if hv else '0, ')
+                + ', '.join(f'0x{hv.get(n, 0):04X}' for n in hn) + '};\n')
         f.write('const RecompFunc g_funcs[] = {\n')
         for lin in order:
             f.write(f'  {{0x{lin:05X}, {names[lin]}}},\n')
@@ -525,7 +704,8 @@ def main():
             f.write(','.join(str(b) for b in im.img[i:i + 32]) + ',' + NL)
         f.write('};' + NL)
     json.dump({'game': game, 'dgroup': im.dgroup, 'functions': len(order),
-               'codesegs': sorted(codesegs), 'unhandled': unhandled},
+               'codesegs': sorted(codesegs), 'unhandled': unhandled,
+               'renderer': bool(hv)},
               open(os.path.join(work, 'lift.json'), 'w'), indent=1)
     if unhandled:
         print(f'  unhandled instruction forms: {sum(unhandled.values())} '

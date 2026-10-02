@@ -39,7 +39,7 @@ add_library(ymfm STATIC
 target_include_directories(ymfm PUBLIC third_party/ymfm)
 
 set(RUNTIME src/main.c src/machine.c src/dos.c src/vga.c src/audio.c src/x87.c
-            src/host.c src/opl.cpp)
+            src/host.c src/hires.c src/opl.cpp)
 
 foreach(game aog ps)
     set(gen "${CMAKE_SOURCE_DIR}/work/${game}/gen")

@@ -67,7 +67,7 @@ def wav_rms(path):
     return (sum(v * v for v in sub) / len(sub)) ** 0.5
 
 
-def run(game, out, seconds, keys, shots, trace=False):
+def run(game, out, seconds, keys, shots, trace=False, extra=()):
     exe = os.path.join(ROOT, 'build', 'Release', f'bstone_{game}.exe')
     save = os.path.join(out, 'save')
     os.makedirs(save, exist_ok=True)
@@ -80,6 +80,7 @@ def run(game, out, seconds, keys, shots, trace=False):
         cmd += ['--shot-at', shot_arg]
     if trace:
         cmd += ['--trace']
+    cmd += list(extra)
     p = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, errors='replace',
                        timeout=seconds * 3 + 60)
     open(os.path.join(out, 'stderr.txt'), 'w').write(p.stderr)
@@ -130,6 +131,24 @@ def check_game(game):
         # checked here (docs/conformance.md).
         ok('play: Sound Blaster digitized playback', err.count('[sb] play') > 0,
            f"{err.count('[sb] play')} blocks")
+    # The hi-res renderer: found in this game's code at lift time, and the
+    # same moment of play drawn at 4x. Its view must not be the original
+    # enlarged: walls and planes resampled from the textures carry colours
+    # (shading, texels between the original columns) a 4x copy cannot. A plain
+    # copy differs by 0%; a close wall, whose texels are already huge, by ~6%;
+    # a corridor by ~30%. More than 2% means the renderer drew the view.
+    ok('hires: renderer found in the game\'s code', lift.get('renderer'))
+    out = os.path.join(base, 'hires')
+    rc, err, errs = run(game, out, 49, ENTER_THROUGH + ',' + PLAY.split(',58000')[0],
+                        {'view': 47500}, extra=['--hires', '4'])
+    big = read_bmp(os.path.join(out, 'view.bmp'))
+    small = read_bmp(os.path.join(base, 'play', 'view1.bmp'))
+    bv = region(big, 64, 64, 1216, 600)
+    up = [small[2][(y // 4) * 320 + x // 4] for y in range(64, 600) for x in range(64, 1216)]
+    differs = sum(a != b for a, b in zip(bv, up)) / max(1, len(bv))
+    ok('hires: the 3D view is redrawn at 4x', rc == 0 and big[0] == 1280 and big[1] == 800 and differs > 0.02,
+       f'{big[0]}x{big[1]}, {differs:.0%} of view pixels differ from the 4x original')
+
     # Save from inside a mission, then load it in a fresh process: ESC opens
     # the LINC menu on NEW MISSION, and SAVE/LOAD MISSION are three up from it
     # (wrapping past LOGOFF and BACK TO ...). The title waits for a key, so

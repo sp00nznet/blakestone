@@ -15,6 +15,7 @@
  *   --mute            silence
  *   --scale N         window size, multiples of 320x240 (default 3)
  *   --fullscreen      start fullscreen (Alt+Enter toggles)
+ *   --hires N         hi-res 3D view at N x 320x200 (default 4 in a window, 0 headless; F10 toggles)
  *   --display MODE    sharp (4:3, default), pixel (whole multiples) or crt (F11 cycles)
  *   --trace           log DOS calls to stderr
  *   --shot FILE.bmp   write the last frame at exit
@@ -59,6 +60,7 @@ int main(int argc, char **argv)
 {
     static char data[512], save[512], tail[256];
     const char *shot = NULL;
+    int hires_set = 0;
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
         const char *v = (i + 1 < argc) ? argv[i + 1] : NULL;
@@ -76,6 +78,7 @@ int main(int argc, char **argv)
         else if (!strcmp(a, "--fullscreen")) g_opt.fullscreen = 1;
         else if (!strcmp(a, "--realtime")) g_opt.realtime = 1;
         else if (!strcmp(a, "--display") && v) { g_opt.display = v; i++; }
+        else if (!strcmp(a, "--hires") && v) { g_opt.hires = atoi(v); hires_set = 1; i++; }
         else if (!strcmp(a, "--shot") && v) { shot = v; i++; }
         else if (!strcmp(a, "--")) {
             for (i++; i < argc; i++) {
@@ -87,6 +90,7 @@ int main(int argc, char **argv)
     if (!g_opt.datadir) { snprintf(data, sizeof data, "original/%s", g_game_id); g_opt.datadir = data; }
     if (!g_opt.savedir) { snprintf(save, sizeof save, "saves/%s", g_game_id); g_opt.savedir = save; }
     g_opt.args = tail;
+    if (!hires_set) g_opt.hires = -1;
     mkdirs(g_opt.savedir);
 
     if (cpu_alloc_mem(&g_cpu) != 0) return 1;
@@ -104,6 +108,8 @@ int main(int argc, char **argv)
         fprintf(stderr, "[dos] the program returned without exiting\n");
     }
     machine_report();
+    if (g_opt.trace) { void hires_report(void); hires_report(); }
+    { void vgaprof_report(void); vgaprof_report(); }
     if (shot) host_snapshot(shot);
     host_shutdown();
     return g_exit_code;

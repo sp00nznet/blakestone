@@ -19,13 +19,13 @@ top of it, roughly in order of how much love per hour they give.
   and a CRT mode with a little horizontal bloom.
 - **Audio**: an OPL3 option (ymfm has it) and a proper resampler for the
   Sound Blaster's 7 kHz effects.
-- **A native renderer at high resolution.** The engine's view is drawn by two
-  routines — the raycaster (`AsmRefresh`) and the wall/sprite scalers — both
-  hand-written, both self-modifying. Replacing exactly those with native code
-  that draws the same scene at 1280×800 or widescreen, while the rest of the
-  game stays the lifted original, is the real remaster. It needs the game's
-  view state (player position and angle, the tile map, the visible-object list)
-  located in DGROUP and documented first.
+- **Hi-res sprites.** Walls, floor and ceiling are hi-res (docs/renderer.md);
+  actors, objects and the weapon are still the original pixels enlarged. The
+  same approach applies: capture each sprite post the masked scaler draws
+  (source column and scale) and resample it at the output resolution.
+- **Widescreen.** Needs the raycaster to cast more columns than the game's
+  view has; the per-column capture would have to come from a native
+  re-cast of the tile map, which is now located (docs/renderer.md).
 - **Quality of life**: rebinding keys from the host, autosave on level change.
 
 ## Deferred
