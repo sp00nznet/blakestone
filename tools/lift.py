@@ -23,8 +23,10 @@ medium model, LZEXE-packed. The pipeline is the same for each:
 The output is generated from the retail binary and is never committed; see the
 README. Why the pieces are shaped this way: docs/architecture.md.
 """
+import filecmp
 import json
 import re
+import shutil
 import os
 import struct
 import sys
@@ -445,11 +447,10 @@ def main():
     print(f'  {len(lifter.smc_imm)} self-modified code bytes')
     lift16.DIV0_FN = 'recomp_div0'
 
-    # A smaller lift must not leave a bigger one's chunks behind for the
-    # build's glob to pick up.
-    for f in os.listdir(out):
-        if f.startswith('recomp_') and f.endswith('.c'):
-            os.remove(os.path.join(out, f))
+    # Write into a fresh directory, then sync() it over the real one.
+    final, out = out, out + '.new'
+    shutil.rmtree(out, ignore_errors=True)
+    os.makedirs(out)
 
     order = sorted(entries)
     unhandled = {}
@@ -529,7 +530,29 @@ def main():
     if unhandled:
         print(f'  unhandled instruction forms: {sum(unhandled.values())} '
               f'({len(unhandled)} kinds), first: {list(unhandled)[:6]}')
-    print(f'  -> {out} ({len(files)} files)')
+    changed = sync(out, final)
+    print(f'  -> {final} ({len(files)} files, {changed} changed)')
+
+
+def sync(src, dst):
+    """Move src's files over dst's, touching only those whose contents
+    differ, and drop dst's files src does not have. An unchanged lift then
+    leaves every timestamp alone and the next build compiles nothing -- which
+    is what lets Setup be re-run cheaply -- and a smaller lift cannot leave a
+    bigger one's chunks behind for the build's glob to pick up."""
+    changed = 0
+    for f in os.listdir(dst):
+        if not os.path.exists(os.path.join(src, f)):
+            os.remove(os.path.join(dst, f))
+            changed += 1
+    for f in os.listdir(src):
+        a, b = os.path.join(src, f), os.path.join(dst, f)
+        if os.path.exists(b) and filecmp.cmp(a, b, shallow=False):
+            continue
+        shutil.copyfile(a, b)
+        changed += 1
+    shutil.rmtree(src)
+    return changed
 
 
 def _seal_fallthrough(insts):
