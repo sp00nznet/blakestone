@@ -168,7 +168,7 @@ is enough), Git. ffmpeg is optional (only `--record` needs it).
 
    ```powershell
    git clone https://github.com/sp00nznet/pcrecomp ..\pcrecomp
-   git -C ..\pcrecomp checkout work/blakestone-integration
+   git -C ..\pcrecomp checkout fc852e3
    $env:PCRECOMP_HOME = (Resolve-Path ..\pcrecomp)
    ```
 
@@ -273,9 +273,9 @@ and the lifted C) and `saves\` are all gitignored.
 
 **Toolkit version.** This needs pcrecomp changes made for these games — LZEXE
 unpacking, Borland's emulator shortcuts, 32-bit index registers, FS/GS decoding
-and self-modifying code — each its own pcrecomp PR. Until they are merged, build
-against `work/blakestone-integration`, which merges all five onto pcrecomp
-`main`; Setup and CI do. See [CHANGELOG](CHANGELOG.md).
+and self-modifying code — pcrecomp #35–#39, all merged. Setup and CI build
+against pcrecomp commit `fc852e3`, the one conformance last ran against; any
+later `main` should work too. See [CHANGELOG](CHANGELOG.md).
 
 ## Documentation
 

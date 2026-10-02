@@ -26,9 +26,9 @@ $Log = Join-Path $Root "setup.log"
 
 # The toolkit revision this game needs (README, "Building from source").
 $PcrecompUrl = "https://github.com/sp00nznet/pcrecomp.git"
-# work/blakestone-integration carries the toolkit PRs this needs until they
-# are merged; then this becomes a release tag. (CHANGELOG, "Toolkit")
-$PcrecompRef = "work/blakestone-integration"
+# pcrecomp main with #35-#39 merged, the commit conformance was last run
+# against. A commit, not a branch: main moves, this build should not.
+$PcrecompRef = "fc852e3"
 
 function Say($m) { Write-Host $m; $m | Out-File $Log -Append -Encoding utf8 }
 function Fail($m) {

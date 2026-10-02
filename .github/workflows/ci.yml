@@ -17,7 +17,7 @@ jobs:
     runs-on: windows-2022
     env:
       # the toolkit revision this repo needs; README "Building from source"
-      PCRECOMP_REF: work/blakestone-integration
+      PCRECOMP_REF: fc852e31765e8661cdde4326f2e2335090a05c30   # pcrecomp main with #35-#39
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4

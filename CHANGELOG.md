@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- Setup and CI pin pcrecomp to commit `fc852e3` (its `main` with #35–#39
+  merged) instead of the `work/blakestone-integration` branch. Lifting against
+  it reproduces the same C byte for byte; conformance still 12/12 and 11/11.
+
 ## [0.1.0] - 2026-10-02
 
 First release: both games boot, reach their menus, start a mission and play,
