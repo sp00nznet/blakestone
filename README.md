@@ -43,15 +43,19 @@ section 10): the toolkit ships, the output never does.
 | Sound Blaster digitized sound (DMA + IRQ) | ✅ | ✅ |
 | PC speaker | modelled, untested | modelled, untested |
 | Saving and loading | ✅ | ✅ |
-| Windowed play (4:3, real time) | ✅ | ✅ |
+| Windowed play (real time, on a virtual monitor) | ✅ | ✅ |
 | Mouse (raw input) | implemented, untested | implemented, untested |
 | Gamepad (XInput, as keys) | implemented, untested | implemented, untested |
 | Full playthrough | not yet | not yet |
 | Hi-res 3D view (walls, floor, ceiling, sprites) | ✅ | ✅ |
+| Widescreen 16:9 / 21:9 (the game's own raycaster, turned) | ✅ | ✅ |
+| Scripted mission: kill, pickup, elevator panel | ✅ | not yet |
+| Next floor / area (needs the RED card; [ROADMAP](ROADMAP.md)) | not yet | not yet |
 | **Conformance** ([docs](docs/conformance.md)) | **22/22** | **17/17** |
 
 Everything marked ✅ was seen working: in scripted headless runs, which the
-conformance harness repeats, and the window on a virtual monitor. Nobody has
+conformance harness repeats (the mission walked by the `--route` autopilot),
+and the window on a virtual monitor. Nobody has
 yet played either game end to end with hands on a keyboard, mouse or pad.
 Treat this as an alpha: it will have bugs a full playthrough would find.
 
@@ -213,12 +217,12 @@ is enough), Git. ffmpeg is optional (only `--record` needs it).
      4 undecodable targets, first: 285F:FFFE (in fn_28624), 2FC8:2E42 (in fn_329D0), 2FC8:25D7 (in fn_31DD2), 0C96:0C9C (in fn_0D5F6)
      32 self-modified code bytes
      1 far calls into nothing (stubbed as dispatch)
-     -> G:\recomp\pc\blakestone\work\aog\gen (7 files, 10 changed)
+     -> work\aog\gen (7 files, 10 changed)
    > py tools\lift.py ps
    BS_FIRE.EXE: DGROUP 4450, 39 code segments, 1003 functions, 74568 instructions lifted, 285 stored code pointers, 0 extra entries, 88 switch tables
      2 undecodable targets, first: 3199:2F42 (in fn_348B1), 3199:25D7 (in fn_33AE2)
      32 self-modified code bytes
-     -> G:\recomp\pc\blakestone\work\ps\gen (7 files, 10 changed)
+     -> work\ps\gen (7 files, 10 changed)
    ```
 
    The "undecodable targets" are branches in bytes that are never executed
