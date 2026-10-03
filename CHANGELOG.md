@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Widescreen: `--widescreen 16:9` (default in a window; `21:9`, `off`) widens
+  the hi-res 3D view past the screen's edges. The extra rays and sprites come
+  from the game's own WallRefresh and DrawScaleds, run again turned left and
+  right with all memory, VGA state and time put back. The HUD stays 4:3 in the
+  middle. F10 now cycles widescreen, original and hi-res 4:3. Conformance gains
+  two checks, including a pixel-identical 4:3 middle: 18/18 and 17/17.
 - Hi-res sprites: actors, objects and the weapon are redrawn at the output
   resolution from their own posts and shading, fitted from the per-column
   routine the game already calls, and occluded by the hi-res walls.
@@ -36,6 +42,11 @@ All notable changes to this project are documented here. The format follows
 - Setup and CI pin pcrecomp to commit `fc852e3` (its `main` with #35–#39
   merged) instead of the `work/blakestone-integration` branch. Lifting against
   it reproduces the same C byte for byte; conformance still 12/12 and 11/11.
+
+### Fixed
+- Hi-res sprites: the weapon vanished next to walls (it was tested against
+  them, which the game never does), and sprites drawn into a page above 16 KB
+  landed at the wrong x (a 16-bit overflow).
 
 ## [0.1.0] - 2026-10-02
 

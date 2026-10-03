@@ -15,21 +15,30 @@
 #include <mmsystem.h>
 #endif
 
-#define FRAME_MAX (1920 * 1200)                 /* 320x200 at --hires 6 */
+#define FRAME_MAX (3840 * 1200)                 /* 640x200 (21:9 and wider) at --hires 6 */
 static uint32_t frame[FRAME_MAX];
 static uint32_t big[FRAME_MAX];
 static int fw = 320, fh = 200;
 static int scan_rows = 200;                     /* the CRT's rows behind the frame */
 static int hires_on;
 int hires_compose(uint32_t *out, int S, int *w, int *h);
+void hires_set_wide(double aspect);
+int hires_wide_cols(void);
+static double wide_aspect, frame_aspect = 4.0 / 3;   /* the chosen widescreen; this frame's shape */
+static int wide_on;
 
 /* What is on screen now: the hi-res renderer's frame when it is on and the
  * game is in its 3D mode, the plain VGA picture otherwise. */
 static void compose(void)
 {
-    if (hires_on && g_opt.hires > 0 && hires_compose(frame, g_opt.hires, &fw, &fh)) { scan_rows = 200; return; }
+    if (hires_on && g_opt.hires > 0 && hires_compose(frame, g_opt.hires, &fw, &fh)) {
+        scan_rows = 200;
+        frame_aspect = 4.0 / 3 * fw / (320.0 * g_opt.hires);   /* 320 columns show at 4:3 */
+        return;
+    }
     vga_compose(frame, &fw, &fh);
     scan_rows = fh;
+    frame_aspect = 4.0 / 3;
 }
 
 /* ---- recording ------------------------------------------------------------ */
@@ -54,7 +63,7 @@ static int rec_w = 640, rec_h = 400;
 
 static void rec_open(void)
 {
-    if (g_opt.hires > 0) { rec_w = 320 * g_opt.hires; rec_h = 200 * g_opt.hires; }
+    if (g_opt.hires > 0) { rec_w = (320 + 2 * hires_wide_cols()) * g_opt.hires; rec_h = 200 * g_opt.hires; }
     snprintf(rec_vpath, sizeof rec_vpath, "%s.video.mp4", g_opt.record);
     snprintf(rec_apath, sizeof rec_apath, "%s.audio.wav", g_opt.record);
     char cmd[1200];
@@ -252,9 +261,9 @@ static void paint(HDC dc)
         int k = cw / fw < ch / fh ? cw / fw : ch / fh;
         if (k < 1) k = 1;
         w = fw * k; h = fh * k;
-    } else {                                          /* sharp, crt: 4:3 */
-        w = cw; h = cw * 3 / 4;
-        if (h > ch) { h = ch; w = ch * 4 / 3; }
+    } else {                                          /* sharp, crt: 4:3, or the widescreen's shape */
+        w = cw; h = (int)(cw / frame_aspect);
+        if (h > ch) { h = ch; w = (int)(ch * frame_aspect); }
     }
     int x = (cw - w) / 2, y = (ch - h) / 2;
     PatBlt(dc, 0, 0, cw, y, BLACKNESS); PatBlt(dc, 0, y + h, cw, ch - y - h, BLACKNESS);
@@ -281,7 +290,16 @@ static LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         if (wp == VK_RETURN && (lp & (1 << 29))) { if (!up) toggle_fullscreen(); return 0; }
         if (wp == VK_F4 && (lp & (1 << 29))) { quit_req = 1; return 0; }
         if (wp == VK_F12) { if (!up) screenshot_key(); return 0; }
-        if (wp == VK_F10) { if (!up) hires_on = !hires_on; return 0; }
+        if (wp == VK_F10) {                           /* widescreen -> original -> hi-res 4:3 -> */
+            if (!up) {
+                if (hires_on && wide_on) { hires_on = 0; wide_on = 0; }
+                else if (!hires_on) hires_on = 1;
+                else wide_on = 1;
+                hires_set_wide(wide_on ? wide_aspect : 0);
+                InvalidateRect(h, NULL, TRUE);
+            }
+            return 0;
+        }
         if (wp == VK_F11) { if (!up) { display_mode = (display_mode + 1) % 3; InvalidateRect(h, NULL, FALSE); } return 0; }
         if (!up && (lp & (1 << 30))) return 0;      /* the game does its own repeat */
         int sc = (lp >> 16) & 0xFF;
@@ -421,6 +439,14 @@ void host_init(void)
 {
     if (g_opt.hires < 0) g_opt.hires = g_opt.headless ? 0 : 4;   /* on in a window */
     hires_on = g_opt.hires > 0;
+    /* widescreen: on in a window unless --widescreen off; "W:H" or a ratio */
+    const char *ws = g_opt.wide ? g_opt.wide : g_opt.headless ? "off" : "16:9";
+    double aw = 0, ah = 1;
+    if (sscanf(ws, "%lf:%lf", &aw, &ah) >= 1 && ah > 0) wide_aspect = aw / ah;
+    if (wide_aspect <= 4.0 / 3) wide_aspect = 0;
+    wide_on = wide_aspect > 0;
+    if (!wide_aspect) wide_aspect = 16.0 / 9;           /* what F10 turns on */
+    hires_set_wide(wide_on ? wide_aspect : 0);
     keys_parse();
     if (g_opt.record) rec_open();
     if (g_opt.wav && (wav_out = fopen(g_opt.wav, "wb")) != NULL) wav_header(wav_out, 0);
@@ -432,7 +458,7 @@ void host_init(void)
     wc.hIcon = LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(1));
     RegisterClassA(&wc);
     int s = g_opt.scale ? g_opt.scale : 3;
-    RECT r = { 0, 0, 320 * s, 240 * s };
+    RECT r = { 0, 0, wide_on && hires_on ? (int)(240 * s * wide_aspect) : 320 * s, 240 * s };
     AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
     wnd = CreateWindowA("bstone", strcmp(g_game_id, "ps") ? "Blake Stone: Aliens of Gold" : "Blake Stone: Planet Strike",
                         WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT,

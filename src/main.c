@@ -16,6 +16,8 @@
  *   --scale N         window size, multiples of 320x240 (default 3)
  *   --fullscreen      start fullscreen (Alt+Enter toggles)
  *   --hires N         hi-res 3D view at N x 320x200 (default 4 in a window, 0 headless; F10 toggles)
+ *   --widescreen A    hi-res view widened to aspect A: 16:9, 21:9 or off (default 16:9
+ *                     in a window, off headless; F10 cycles it, original, 4:3)
  *   --display MODE    sharp (4:3, default), pixel (whole multiples) or crt (F11 cycles)
  *   --trace           log DOS calls to stderr
  *   --shot FILE.bmp   write the last frame at exit
@@ -79,6 +81,7 @@ int main(int argc, char **argv)
         else if (!strcmp(a, "--realtime")) g_opt.realtime = 1;
         else if (!strcmp(a, "--display") && v) { g_opt.display = v; i++; }
         else if (!strcmp(a, "--hires") && v) { g_opt.hires = atoi(v); hires_set = 1; i++; }
+        else if (!strcmp(a, "--widescreen") && v) { g_opt.wide = v; i++; }
         else if (!strcmp(a, "--shot") && v) { shot = v; i++; }
         else if (!strcmp(a, "--")) {
             for (i++; i < argc; i++) {

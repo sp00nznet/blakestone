@@ -148,6 +148,26 @@ def check_game(game):
     differs = sum(a != b for a, b in zip(bv, up)) / max(1, len(bv))
     ok('hires: the 3D view is redrawn at 4x', rc == 0 and big[0] == 1280 and big[1] == 800 and differs > 0.02,
        f'{big[0]}x{big[1]}, {differs:.0%} of view pixels differ from the 4x original')
+    # Widescreen: the same moment at 16:9. The side strips must show the view
+    # (walls, floor, sprites cast by the game's own code turned left and
+    # right), and the 4:3 middle must match the run above pixel for pixel --
+    # the side passes put every byte back, so the game cannot have noticed.
+    # (The outermost column each side is left out: it now blends into the
+    # strip instead of stopping at the edge.)
+    ok('widescreen: found in the game\'s code', lift.get('widescreen'))
+    out = os.path.join(base, 'wide')
+    rc, err, errs = run(game, out, 49, ENTER_THROUGH + ',' + PLAY.split(',58000')[0],
+                        {'view': 47500}, extra=['--hires', '4', '--widescreen', '16:9'])
+    wide = read_bmp(os.path.join(out, 'view.bmp'))
+    e = (wide[0] - 1280) // 2
+    mid = region(wide, e + 4, 0, e + 1276, 800)
+    same = mid == region(big, 4, 0, 1276, 800)
+    sides = [region(wide, 0, 96, e, 560), region(wide, wide[0] - e, 96, wide[0], 560)]   # inside the view
+    filled = min(sum(p != 0 for p in sd) / max(1, len(sd)) for sd in sides)
+    cols = min(len(set(sd)) for sd in sides)
+    ok('widescreen: the view reaches into both sides, the 4:3 picture unchanged',
+       rc == 0 and wide[0] == 1704 and same and filled > 0.98 and cols >= 8,
+       f'{wide[0]}x{wide[1]}, middle {"identical" if same else "DIFFERS"}, strips {filled:.0%} drawn, {cols}+ colours')
 
     # Save from inside a mission, then load it in a fresh process: ESC opens
     # the LINC menu on NEW MISSION, and SAVE/LOAD MISSION are three up from it

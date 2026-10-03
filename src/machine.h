@@ -26,6 +26,7 @@ typedef struct {
     int fullscreen;
     const char *display;      /* sharp | pixel | crt */
     int hires;                /* hi-res renderer scale, 0 off, -1 default */
+    const char *wide;         /* widescreen aspect: "16:9", "21:9", "off"; NULL default */
     int realtime;             /* headless, but on the wall clock */
 } Options;
 extern Options g_opt;
@@ -70,6 +71,8 @@ unsigned vga_scan_start(void);
 unsigned vga_row_bytes(void);
 uint32_t vga_color(int i);
 int vga_map_mask(void);
+void vga_hold(int on);
+extern int g_tick_hold, g_recomp_tick_budget;
 
 /* audio.c: OPL2 (opl.cpp), Sound Blaster DSP + 8237 DMA, PC speaker */
 void audio_init(void);

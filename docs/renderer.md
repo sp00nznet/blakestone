@@ -1,8 +1,10 @@
 # The hi-res renderer
 
-`--hires N` (default 4 in a window; F10 toggles) redraws the 3D view — walls,
-floor, ceiling and sprites — at N × 320 by N × 200, from the game's own art, while
-the rest of the game — logic, HUD, menus — stays the lifted original.
+`--hires N` (default 4 in a window) redraws the 3D view — walls, floor, ceiling
+and sprites — at N × 320 by N × 200, from the game's own art, while the rest of
+the game — logic, HUD, menus — stays the lifted original. `--widescreen 16:9`
+(the default in a window) widens the view past the screen's edges. **F10**
+cycles widescreen → original → hi-res 4:3.
 
 | | |
 |---|---|
@@ -99,14 +101,56 @@ each game's code at lift time:
 Both games resolve fully; a build whose game does not prints
 `renderer: not found (...)` and simply has no hi-res mode.
 
+## Widescreen
+
+![Aliens of Gold at 16:9](screenshots/wide-aog.png)
+
+The game casts 320 rays; a 16:9 view needs about 53 more on each side. They
+come from the game itself. Right after DrawScaleds returns, a hook runs
+WallRefresh and DrawScaleds twice more, with the view turned left and then
+right, and the same hooks that capture the real frame capture those passes'
+wall columns and sprite columns.
+
+- **Turning about the eye.** WallRefresh puts the eye `focallength` behind
+  the player, along the view. A side pass turns `player->angle` by whole
+  degrees and moves the player round the eye by the same angle, so the eye
+  stays fixed. The turn is just under the view's full width, which puts each
+  strip near the edge of its turned view, where the rays are densest. It also
+  overlaps the real view by a degree.
+- **Leaving no trace.** The passes would change real state: spotvis, the
+  automap, actors' "seen" flags. So all of memory and the registers are put
+  back after each pass. Video memory takes no writes, the VGA registers the
+  pass programs are restored, and no interrupt runs or virtual time passes.
+  Conformance checks this: the 4:3 part of a 16:9 frame matches the 4:3 run
+  pixel for pixel.
+- **Into one view.** Column *i*'s ray is at `pixelangle[i] =
+  atan((160 − i − ½) / F)`, and *F* is fitted from the table. Each wide
+  column's angle picks the bracketing rays of its side pass, interpolated as
+  the main view's are. Heights are rescaled by `cos ψ_pass / cos ψ_wide`,
+  because a wall's height goes as 1 / perpendicular distance. A side pass's
+  sprites are moved the same way and kept to their strip.
+- **Floor and ceiling** need no pass: each row's texture fit is a linear
+  function of x, valid past the screen's edges. Untextured floors and
+  ceilings take the colour the game cleared that row to.
+
+The HUD stays 4:3 in the middle, and screens without a 3D view are
+pillarboxed, so the window keeps one shape. `find_widescreen()` in
+`tools/lift.py` reads WallRefresh, the player fields, `focallength`,
+`midangle`, `pixelangle[]` and DrawScaleds out of each game's code. Planet
+Strike's weapon is lit too, so DrawScaleds is taken as the first of
+ThreeDRefresh's callees that reaches the lit sprite routine.
+
 ## Cost
 
-About 1.4 ms per 1280×800 frame on the development machine: the planes are
-stepped in 16.16 fixed point along each output row, walls likewise down each
-column, and the palette is a lookup table per frame.
+About 1.7 ms to compose a 1280×800 frame on the development machine (2.9 ms
+at 1704×800): the planes are stepped in 16.16 fixed point along each output row,
+walls likewise down each column, and the palette is a lookup table per frame.
+The two widescreen side passes add 2.4 ms a frame, mostly the game's own
+raycaster and sprite code running again.
 
 ## Checked by
 
 `tools/conformance.py`: the renderer must be found in each game's code, and the
 same moment of play at `--hires 4` must produce a 1280×800 frame whose view is
-not the original enlarged.
+not the original enlarged; at `--widescreen 16:9` the strips must be drawn and
+the 4:3 middle identical to that frame.

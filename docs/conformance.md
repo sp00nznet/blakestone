@@ -31,6 +31,8 @@ with scripted keys (`--keys`) and fixed-time frame grabs (`--shot-at`).
 | save: a mission saves to slot 0 | ESC → SAVE MISSION → slot 0 → a typed name did not write a `SAVEGAM0` of more than 1 KB |
 | hires: renderer found in the game's code | `find_renderer()` could not read the raycaster, scalers and span drawers out of this build |
 | hires: the 3D view is redrawn at 4x | the same moment at `--hires 4` is not 1280×800, or its view is the original enlarged (≤ 2% of pixels differ) |
+| widescreen: found in the game's code | `find_widescreen()` could not read WallRefresh, DrawScaleds and the player fields out of this build |
+| widescreen: the view reaches into both sides, the 4:3 picture unchanged | at `--widescreen 16:9` the frame is not 1704×800, its side strips are not drawn, or its 4:3 middle differs from the 4:3 run's — the side passes disturbed the game |
 | load: the saved mission loads into the 3D view | a fresh process, LOAD MISSION → slot 0, is not back in a textured view |
 
 *Planet Strike*'s starting pistol is an FM sound, and its digitized sounds

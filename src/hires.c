@@ -25,6 +25,10 @@
  */
 #include "machine.h"
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 int g_draw_tag;
 
 typedef struct {
@@ -40,12 +44,29 @@ typedef struct {
 } Frame;
 
 static Col cur[320], shown[320];
-#define WALLH_MAX (320 * 6)
+#define WALLH_MAX ((320 + 2 * 160) * 6)
 static double wallh[WALLH_MAX];          /* hi-res wall height (wallheight units) per output column */
 static Frame fcur, fshown;
 static int dirty, have;
 
 static inline uint16_t rd16(uint16_t seg, uint16_t off) { return mem_read16(&g_cpu, seg, off); }
+
+/* Widescreen (see hires_side): the game's own frame is pass 0; passes 1 and 2
+ * are the view rotated left and right, cast by the game's code again. */
+static int pass;
+static Col side_cur[2][320], side_shown[2][320];
+static int wide_cols;                    /* game columns added each side; 0 off */
+static int side_ran, side_shown_ok;      /* the side passes ran for this frame */
+static int after_scaleds;                /* DrawScaleds has returned: the weapon is next */
+static double side_rot;                  /* their rotation, radians toward column 0 */
+static int16_t pa_tab[320];              /* pixelangle[]: each column's ray */
+
+void hires_set_wide(double aspect)
+{
+    int e = aspect > 0 ? (int)lround(320 * (aspect * 0.75 - 1) / 2) : 0;   /* 320x200 shows at 4:3 */
+    wide_cols = e < 0 ? 0 : e > 160 ? 160 : e;
+}
+int hires_wide_cols(void) { return wide_cols; }
 
 void hires_hit(CPU *c)
 {
@@ -53,6 +74,14 @@ void hires_hit(CPU *c)
     if (!h->ok) return;
     uint16_t ds = c->ds, x = rd16(ds, h->pixx);
     if (x >= 320) return;
+    if (pass) {
+        Col *k = &side_cur[pass - 1][x];
+        k->seg = rd16(ds, h->postseg); k->off = rd16(ds, h->postoff);
+        k->wh = rd16(ds, (uint16_t)(h->wallheight + 2 * x));
+        k->yi = rd16(ds, h->yint); k->xi = rd16(ds, h->xint);
+        k->ok = 1;
+        return;
+    }
     Col *k = &cur[x];
     k->seg = rd16(ds, h->postseg);
     k->off = rd16(ds, h->postoff);
@@ -170,13 +199,15 @@ static int plane_texel(double fx, double fy)
  * resolution from its own posts, occluded by the hi-res walls the same way the
  * game occludes it (a column is hidden where the wall is taller). */
 typedef struct {
-    uint16_t x, height, seg, off, shseg, shbase;
+    uint32_t x;                 /* dest * 4 + plane: past 16 bits on the upper pages */
+    uint16_t height, seg, off, shseg, shbase;
     uint8_t shaded, w;          /* w: pixels the map mask covers */
+    uint8_t pass, top;          /* top: drawn after DrawScaleds (the weapon), never behind walls */
 } SCol;
 
 typedef struct {
     uint16_t seg, height, shseg, shbase;
-    uint8_t shaded;
+    uint8_t shaded, pass, top;
     double xc;                  /* the centre, in screen pixels */
     int x0, x1;                 /* the screen columns the game drew */
 } Sprite;
@@ -199,10 +230,12 @@ void hires_sprite_col(CPU *c, int shaded)
     while (plane + w < 4 && mask >> (plane + w) & 1) w++;   /* one call, several pixels */
     k->w = (uint8_t)(w ? w : 1);
     k->height = rd16(c->ss, (uint16_t)(c->sp + 4));    /* past the far return address */
-    k->x = (uint16_t)(rd16(c->ss, (uint16_t)(c->sp + 6)) * 4 + plane);   /* resolved at the flip */
+    k->x = (uint32_t)rd16(c->ss, (uint16_t)(c->sp + 6)) * 4 + plane;   /* resolved at the flip */
     k->seg = rd16(ds, h->sp_cmdseg);
     k->off = rd16(ds, h->sp_cmdoff);
     k->shaded = (uint8_t)shaded;
+    k->pass = (uint8_t)pass;
+    k->top = (uint8_t)(!pass && after_scaleds);
     k->shseg = shaded ? rd16(ds, h->sp_shseg) : 0;
     k->shbase = shaded ? (uint16_t)(rd16(ds, h->sp_shoff) & 0xFF00) : 0;
 }
@@ -241,7 +274,7 @@ static void fit_one(const int (*pc)[3], int n, const SCol *proto)
     }
     Sprite *sp = &sprs[nsprs++];
     sp->seg = proto->seg; sp->height = proto->height;
-    sp->shaded = proto->shaded; sp->shseg = proto->shseg; sp->shbase = proto->shbase;
+    sp->shaded = proto->shaded; sp->pass = proto->pass; sp->top = proto->top; sp->shseg = proto->shseg; sp->shbase = proto->shbase;
     sp->x0 = pc[0][0]; sp->x1 = pc[n - 1][0] + pc[n - 1][2] - 1;
     sp->xc = lo <= hi ? (lo + hi) / 2 : (sp->x0 + sp->x1 + 1) / 2.0;
     if (getenv("BSTONE_SPRITE_DEBUG"))
@@ -258,12 +291,13 @@ static void fit_sprites(unsigned start)
     nsprs = 0;
     for (int i = 0; i < nscols; ) {
         int j = i;
-        while (j < nscols && scols[j].seg == scols[i].seg && scols[j].height == scols[i].height) j++;
+        while (j < nscols && scols[j].seg == scols[i].seg && scols[j].height == scols[i].height
+               && scols[j].pass == scols[i].pass && scols[j].top == scols[i].top) j++;
         int n = 0;
         for (int m = i; m < j; m++) {
             int c = shape_column(scols[m].seg, scols[m].off);
             if (c < 0) continue;
-            pc[n][0] = (int)((((unsigned)(scols[m].x - start * 4)) & 0x3FFFF) % 320);
+            pc[n][0] = (int)(((scols[m].x - start * 4) & 0x3FFFF) % 320);
             pc[n][1] = c;
             pc[n][2] = scols[m].w;
             n++;
@@ -280,16 +314,94 @@ static void fit_sprites(unsigned start)
     nscols = 0;
 }
 
+/* ---- widescreen -------------------------------------------------------------
+ *
+ * The game casts 320 columns; a wider view needs rays beyond its edges. It
+ * gets them from the game itself: right after DrawScaleds, WallRefresh and
+ * DrawScaleds run twice more with the view turned left and then right about
+ * the eye, and the hooks above capture those passes' columns and sprites as
+ * they capture the real frame's. The passes must leave no trace, so the whole
+ * of memory and the registers are put back after each (spotvis, the automap,
+ * an actor's "seen" flag all change), video memory takes no writes, and no
+ * interrupt runs or time passes -- the game, headless or not, cannot tell.
+ *
+ * WallRefresh derives the eye from player->x/y/angle (the eye sits
+ * focallength behind the player), so a pass turns the angle and moves the
+ * player round the eye by the same amount: the eye stays put. The turn is
+ * whole degrees (the game's angles), just under the view's full width, so a
+ * side strip falls near the edge of the turned view, where its columns are
+ * densest, and overlaps the real view by a degree. */
+static uint8_t side_snap[MEM_SIZE];
+static uint64_t side_us, side_n;
+
+static int32_t rd32(uint16_t seg, uint16_t off) { return (int32_t)(rd16(seg, off) | (uint32_t)rd16(seg, (uint16_t)(off + 2)) << 16); }
+static void wr32(uint16_t seg, uint16_t off, int32_t v)
+{
+    mem_write16(&g_cpu, seg, off, (uint16_t)v);
+    mem_write16(&g_cpu, seg, (uint16_t)(off + 2), (uint16_t)((uint32_t)v >> 16));
+}
+
+#define FINE (2 * M_PI / 3600)                   /* pixelangle[] units: FINEANGLES = 3600 */
+
+void hires_side(CPU *c)
+{
+    const HiresVars *h = &g_hires;
+    if (pass) return;
+    after_scaleds = 1;
+    if (!h->ok || !h->ws_ok || !wide_cols) return;
+    uint16_t ds = c->ds, pl = rd16(ds, h->player);
+    int pa0 = (int16_t)rd16(ds, h->pixelangle);
+    for (int i = 0; i < 320; i++) pa_tab[i] = (int16_t)rd16(ds, (uint16_t)(h->pixelangle + 2 * i));
+    if (!pl || !pa0) return;
+    uint64_t t0 = host_us();
+    CPU regs = *c;
+    int budget = g_recomp_tick_budget;
+    memcpy(side_snap, c->mem, MEM_SIZE);
+    vga_hold(1);
+    g_tick_hold = 1;
+
+    int ang = rd16(ds, (uint16_t)(pl + h->p_angle));
+    double f = rd32(ds, h->focal), a = ang * M_PI / 180;
+    double ex = rd32(ds, (uint16_t)(pl + h->p_x)) - f * cos(a);
+    double ey = rd32(ds, (uint16_t)(pl + h->p_y)) + f * sin(a);
+    int delta = (int)(2 * abs(pa0) / 10.0) - 1;          /* degrees */
+    for (int k = 0; k < 2; k++) {
+        int turn = ((k == 0) == (pa0 > 0)) ? delta : -delta;   /* pass 1 toward column 0 */
+        int a2 = ((ang + turn) % 360 + 360) % 360;
+        double r = a2 * M_PI / 180;
+        wr32(ds, (uint16_t)(pl + h->p_x), (int32_t)lround(ex + f * cos(r)));
+        wr32(ds, (uint16_t)(pl + h->p_y), (int32_t)lround(ey - f * sin(r)));
+        mem_write16(&g_cpu, ds, (uint16_t)(pl + h->p_angle), (uint16_t)a2);
+        memset(side_cur[k], 0, sizeof side_cur[k]);
+        pass = k + 1;
+        hires_side_call(c, 0);
+        hires_side_call(c, 1);
+        pass = 0;
+        memcpy(c->mem, side_snap, MEM_SIZE);
+        *c = regs;
+    }
+    vga_hold(0);
+    g_tick_hold = 0;
+    g_recomp_tick_budget = budget;
+    side_rot = delta * M_PI / 180;
+    side_ran = 1;
+    side_us += host_us() - t0; side_n++;
+}
+
 /* The game flips pages by moving the CRTC start address once a frame is
  * drawn; the columns captured since the last flip belong to that frame. */
 void hires_flip(void)
 {
     { static int n; if (getenv("BSTONE_HIRES_DEBUG") && n++ < 12)
         fprintf(stderr, "[hires] flip start=%04X dirty=%d spans=%d\n", vga_scan_start(), dirty, nspans); }
+    after_scaleds = 0;
     if (!dirty && !nspans && !nscols) return;
     memcpy(shown, cur, sizeof shown);
     fshown = fcur;
     memset(cur, 0, sizeof cur);
+    memcpy(side_shown, side_cur, sizeof side_shown);
+    side_shown_ok = side_ran;
+    side_ran = 0;
     sh_seg = sh_seg_cur;
     fit_rows(vga_scan_start(), vga_row_bytes());
     fit_sprites(vga_scan_start());
@@ -323,7 +435,12 @@ static int scale_of(int S) { return S < 1 ? 1 : S > 6 ? 6 : S; }
 /* The whole screen at S x 320 by S x 200, hi-res walls in the 3D view. */
 static int compose_inner(uint32_t *out, int S, int *w, int *h);
 static uint64_t c_us, c_n;
-void hires_report(void) { if (c_n) fprintf(stderr, "[hires] %llu frames, %.2f ms each\n", (unsigned long long)c_n, c_us / 1000.0 / c_n); }
+void hires_report(void)
+{
+    if (c_n) fprintf(stderr, "[hires] %llu frames, %.2f ms each\n", (unsigned long long)c_n, c_us / 1000.0 / c_n);
+    if (side_n) fprintf(stderr, "[hires] %llu widescreen side passes, %.2f ms each\n",
+                        (unsigned long long)side_n, side_us / 1000.0 / side_n);
+}
 
 int hires_compose(uint32_t *out, int S, int *w, int *h)
 {
@@ -331,6 +448,56 @@ int hires_compose(uint32_t *out, int S, int *w, int *h)
     int r = compose_inner(out, S, w, h);
     c_us += host_us() - t; c_n++;
     return r;
+}
+
+/* One column of the wide view: what the game chose there (or, in the side
+ * strips, what a side pass did), ready to resample. */
+typedef struct {
+    uint16_t seg;
+    int col;                    /* the texel column the game chose: the clamp */
+    double tc, hh;              /* texture coordinate in texels; half height in px */
+    uint8_t ok;
+} VCol;
+
+#define VMAX (320 + 2 * 160)
+static VCol vcols[VMAX];
+
+static VCol from_col(const Col *k)
+{
+    VCol v = {0};
+    if (!k->ok) return v;
+    v.seg = k->seg; v.col = k->off >> 6; v.tc = texcoord(k); v.hh = k->wh / 8.0; v.ok = 1;
+    return v;
+}
+
+/* Side pass k's view at angle psi (radians toward column 0, from that view's
+ * centre), between the two columns whose rays bracket it. */
+static VCol side_col(int k, double psi)
+{
+    VCol v = {0};
+    double s = pa_tab[0] > 0 ? FINE : -FINE;
+    if (psi > pa_tab[0] * s || psi < pa_tab[319] * s) return v;
+    int j = 0;
+    while (j < 318 && pa_tab[j + 1] * s >= psi) j++;   /* ponytail: linear scan, 2 x E x 320 a frame */
+    double pj = pa_tab[j] * s, pk = pa_tab[j + 1] * s, t = pj > pk ? (pj - psi) / (pj - pk) : 0;
+    const Col *a = &side_shown[k][j], *b = &side_shown[k][j + 1];
+    if (!a->ok) { a = b; t = 0; }
+    if (!a->ok) return v;
+    v = from_col(a);
+    int lo = v.col, hi = v.col;
+    if (b->ok && b != a) {
+        VCol w = from_col(b);
+        if (w.seg == v.seg && fabs(w.tc - v.tc) < 2.0) {
+            v.tc += (w.tc - v.tc) * t; v.hh += (w.hh - v.hh) * t;
+            lo = v.col < w.col ? v.col : w.col; hi = v.col < w.col ? w.col : v.col;
+        } else if (t >= 0.5) {
+            v = w; lo = hi = w.col;
+        }
+    }
+    v.col = (int)floor(v.tc);
+    if (v.col < lo) v.col = lo;
+    if (v.col > hi) v.col = hi;
+    return v;
 }
 
 static int compose_inner(uint32_t *out, int S, int *w, int *h)
@@ -354,22 +521,51 @@ static int compose_inner(uint32_t *out, int S, int *w, int *h)
         }
     uint32_t pal[256];
     for (int i = 0; i < 256; i++) pal[i] = vga_color(i);
-    const int W = 320 * S;
+    /* Widescreen: the frame is E game columns wider each side, always, so
+     * the window's shape holds; the 4:3 picture sits in the middle and only
+     * the 3D view, when it spans the screen, reaches into the sides. */
+    const int E = wide_cols, OX = E * S;
+    const int W = (320 + 2 * E) * S;
     *w = W; *h = 200 * S;
 
     /* the original, enlarged: one output row per source row, then copied */
     for (int y = 0; y < 200; y++) {
         uint32_t *o = out + (size_t)y * S * W;
+        for (int k = 0; k < OX; k++) o[k] = o[W - 1 - k] = 0xFF000000u;
         for (int x = 0; x < 320; x++) {
             uint32_t c = pal[px[y][x]];
-            for (int k = 0; k < S; k++) o[x * S + k] = c;
+            for (int k = 0; k < S; k++) o[OX + x * S + k] = c;
         }
         for (int r = 1; r < S; r++) memcpy(o + (size_t)r * W, o, (size_t)W * 4);
     }
     if (!have || vx1 < vx0 || vx1 - vx0 + 1 > 320) return 1;
 
+    /* the wide view's columns, and the geometry that places the side passes:
+     * column i's ray is at pixelangle[i] = atan((cx - i - 0.5) / F) */
+    const int wide = E && side_shown_ok && vx0 == 0 && vx1 == 319;
+    const int e = wide ? E : 0, g0 = vx0 - e, nv = vx1 - vx0 + 1 + 2 * e;
+    const double cx = 160.0, s = pa_tab[0] > 0 ? FINE : -FINE;
+    double F = 0;
+    if (wide) {
+        double num = 0, den = 0;
+        for (int i = 0; i < 320; i++) {
+            double d = cx - i - 0.5;
+            num += d * d; den += d * tan(pa_tab[i] * s);
+        }
+        F = den > 0 ? num / den : 0;
+    }
+    for (int i = 0; i < nv; i++) {
+        int g = g0 + i;
+        if (g >= 0 && g < 320) { vcols[i] = from_col(&shown[g]); continue; }
+        int k = g < 0 ? 0 : 1;
+        double psi = atan((cx - g - 0.5) / F), pr = psi - (k ? -side_rot : side_rot);
+        vcols[i] = side_col(k, pr);
+        vcols[i].hh *= cos(pr) / cos(psi);       /* height goes as 1 / perpendicular distance */
+    }
+
     /* floor and ceiling, row by row: each output row's texture fit is fixed,
-     * so u and v step by a constant along it (16.16 fixed point) */
+     * so u and v step by a constant along it (16.16 fixed point); the fit
+     * extends past the screen's edges into the side strips unchanged */
     const HiresVars *hv = &g_hires;
     for (int Y = vy0 * S; Y < (vy1 + 1) * S; Y++) {
         double fy = (Y + 0.5) / S - 0.5;
@@ -377,7 +573,21 @@ static int compose_inner(uint32_t *out, int S, int *w, int *h)
         double t = fy - y0;
         const RowFit *a = (y0 >= 0 && y0 < 200 && rows[y0].ok) ? &rows[y0] : NULL;
         const RowFit *b = (y0 + 1 < 200 && rows[y0 + 1].ok) ? &rows[y0 + 1] : NULL;
-        if (!a && !b) continue;
+        const uint8_t *owr = ow[Y / S];
+        uint32_t *orow = out + (size_t)Y * W + OX;
+        if (!a && !b) {
+            /* an untextured floor or ceiling: the side strips take the
+             * colour the game cleared the row to */
+            if (e) {
+                int y = Y / S, xl = 0, xr = 319;
+                while (xl < 320 && owr[xl] != DRAW_OTHER) xl++;
+                while (xr >= 0 && owr[xr] != DRAW_OTHER) xr--;
+                uint32_t cl = xl < 320 ? pal[px[y][xl]] : 0xFF000000u, cr = xr >= 0 ? pal[px[y][xr]] : cl;
+                if (xl >= 320) cl = cr;
+                for (int k = 0; k < OX; k++) { orow[-OX + k] = cl; orow[320 * S + k] = cr; }
+            }
+            continue;
+        }
         if (!a || (b && a->byte != b->byte)) { if (!a || t >= 0.5) a = b; b = NULL; }
         double u0 = a->u0, ux = a->ux, v0 = a->v0, vx = a->vx;
         if (b) {
@@ -385,15 +595,15 @@ static int compose_inner(uint32_t *out, int S, int *w, int *h)
             v0 += (b->v0 - v0) * t; vx += (b->vx - vx) * t;
         }
         /* at output column X the source position is (X + 0.5)/S - 0.5 */
-        double fx0 = (vx0 * S + 0.5) / S - 0.5;
+        double fx0 = (g0 * S + 0.5) / S - 0.5;
         int64_t U = (int64_t)((u0 + ux * fx0) * 65536.0), dU = (int64_t)(ux / S * 65536.0);
         int64_t V = (int64_t)((v0 + vx * fx0) * 65536.0), dV = (int64_t)(vx / S * 65536.0);
         uint32_t tex = (uint32_t)hv->pl_texseg * 16 + a->byte;
         uint32_t shade = (a->shaded && sh_seg) ? (uint32_t)sh_seg * 16 + (a->sh & 0xFF00) : 0;
-        const uint8_t *owr = ow[Y / S];
-        uint32_t *o = out + (size_t)Y * W + vx0 * S;
-        for (int x = vx0; x <= vx1; x++) {
-            int mine = owr[x] == DRAW_WALL || owr[x] == DRAW_PLANE || (owr[x] == DRAW_SPRITE && nsprs_shown);
+        uint32_t *o = orow + g0 * S;
+        for (int x = g0; x < g0 + nv; x++) {
+            int mine = x < 0 || x >= 320 || owr[x] == DRAW_WALL || owr[x] == DRAW_PLANE
+                       || (owr[x] == DRAW_SPRITE && nsprs_shown);
             for (int k = 0; k < S; k++, o++, U += dU, V += dV) {
                 if (!mine) continue;
                 unsigned ui = (unsigned)(U >> 26) & 63, vi = (unsigned)(V >> 26) & 63;
@@ -406,35 +616,33 @@ static int compose_inner(uint32_t *out, int S, int *w, int *h)
 
     /* walls, column by column, over the planes */
     const Frame *f = &fshown;
-    int ncol = vx1 - vx0 + 1;
     double yc = (double)(vy0 + f->centery) * S;               /* the horizon, in output rows */
-    for (int i = 0; i < WALLH_MAX; i++) wallh[i] = 0;
-    for (int X = vx0 * S; X < (vx1 + 1) * S; X++) {
-        double u = (X + 0.5) / S - 0.5 - vx0;
+    for (int i = 0; i < nv * S; i++) wallh[i] = 0;
+    for (int X = g0 * S; X < (g0 + nv) * S; X++) {
+        double u = (X + 0.5) / S - 0.5 - g0;
         int c0 = (int)floor(u);
         double t = u - c0;
         if (c0 < 0) { c0 = 0; t = 0; }
-        if (c0 >= ncol - 1) { c0 = ncol - 1; t = 0; }
-        const Col *a = &shown[c0], *b = &shown[c0 + (c0 + 1 < ncol)];
+        if (c0 >= nv - 1) { c0 = nv - 1; t = 0; }
+        const VCol *a = &vcols[c0], *b = &vcols[c0 + (c0 + 1 < nv)];
         if (!a->ok) continue;
-        double tc = texcoord(a), hh = a->wh / 8.0;
+        double tc = a->tc, hh = a->hh;
         uint16_t seg = a->seg;
         if (b->ok && b != a) {
-            double tb = texcoord(b);
-            if (b->seg == a->seg && fabs(tb - tc) < 2.0) {     /* same surface: interpolate */
-                tc += (tb - tc) * t;
-                hh += (b->wh / 8.0 - hh) * t;
+            if (b->seg == a->seg && fabs(b->tc - tc) < 2.0) {  /* same surface: interpolate */
+                tc += (b->tc - tc) * t;
+                hh += (b->hh - hh) * t;
             } else if (t >= 0.5) {                            /* an edge: nearest */
-                tc = tb; hh = b->wh / 8.0; seg = b->seg;
+                tc = b->tc; hh = b->hh; seg = b->seg;
             }
         }
-        if (X - vx0 * S < WALLH_MAX) wallh[X - vx0 * S] = hh * 8;
+        wallh[X - g0 * S] = hh * 8;
         if (hh <= 0) continue;
         /* The game's own column choice is ground truth: the sub-texel fraction
          * may move between the two neighbours' columns but never past them --
          * at 63.99 + a fraction it would read the next column in memory, and
          * that showed as a dashed line down the seam. */
-        int col = (int)floor(tc), ca = a->off >> 6, cb = b->off >> 6;
+        int col = (int)floor(tc), ca = a->col, cb = b->col;
         int lo = seg == b->seg && b->ok ? (ca < cb ? ca : cb) : (seg == a->seg ? ca : cb);
         int hi = seg == b->seg && b->ok ? (ca < cb ? cb : ca) : lo;
         if (seg != a->seg) lo = hi = cb;
@@ -452,11 +660,14 @@ static int compose_inner(uint32_t *out, int S, int *w, int *h)
         if (y_hi > (vy1 + 1) * S - 1) y_hi = (vy1 + 1) * S - 1;
         double r0 = 32.0 + (y_lo + 0.5 - yc) / S / hh * 32.0, dr = 32.0 / (S * hh);
         int64_t R = (int64_t)(r0 * 65536.0), dR = (int64_t)(dr * 65536.0);
-        int x = X / S;
-        uint32_t *o = out + (size_t)y_lo * W + X;
+        int x = (X + OX) / S - E;                               /* the game column; < 0 or > 319 in a strip */
+        int gate = x >= 0 && x < 320;
+        uint32_t *o = out + (size_t)y_lo * W + OX + X;
         for (int Y = y_lo; Y <= y_hi; Y++, o += W, R += dR) {
-            uint8_t ox = ow[Y / S][x];
-            if (ox != DRAW_WALL && ox != DRAW_PLANE && !(ox == DRAW_SPRITE && nsprs_shown)) continue;
+            if (gate) {
+                uint8_t ox = ow[Y / S][x];
+                if (ox != DRAW_WALL && ox != DRAW_PLANE && !(ox == DRAW_SPRITE && nsprs_shown)) continue;
+            }
             int r = (int)(R >> 16);
             if (r < 0) r = 0; if (r > 63) r = 63;
             unsigned texel = mem[(tex + r) & 0xFFFFF];
@@ -465,23 +676,36 @@ static int compose_inner(uint32_t *out, int S, int *w, int *h)
         }
     }
     /* sprites, back to front as the game drew them, over everything but the
-     * overlays the game put on top of them (text, the fizzle) */
+     * overlays the game put on top of them (text, the fizzle); a side pass's
+     * sprites are moved into the wide view and kept to their strip */
     for (int si = 0; si < nsprs_shown; si++) {
         const Sprite *sp = &sprs_shown[si];
-        double k = sp->height / 64.0, hh = sp->height / 2.0;   /* texel width; half height */
+        double xc = sp->xc, ht = sp->height;
+        int Xlo = vx0 * S, Xhi = (vx1 + 1) * S;
+        if (sp->pass) {
+            if (!wide) continue;
+            int k = sp->pass - 1;
+            double pr = atan((cx - xc) / F), psi = pr + (k ? -side_rot : side_rot);
+            if (fabs(psi) >= M_PI / 2 - 0.01) continue;
+            xc = cx - F * tan(psi);
+            ht *= cos(pr) / cos(psi);
+            if (k == 0) { Xlo = g0 * S; Xhi = vx0 * S; }
+            else        { Xlo = (vx1 + 1) * S; Xhi = (g0 + nv) * S; }
+        }
+        double k = ht / 64.0, hh = ht / 2.0;   /* texel width; half height */
         if (k <= 0) continue;
         int left = seg_word(sp->seg, 0), right = seg_word(sp->seg, 2);
-        double xa = sp->xc + (left - 32) * k, xb = sp->xc + (right + 1 - 32) * k;
+        double xa = xc + (left - 32) * k, xb = xc + (right + 1 - 32) * k;
         int X0 = (int)floor(xa * S), X1 = (int)ceil(xb * S);
-        if (X0 < vx0 * S) X0 = vx0 * S;
-        if (X1 > (vx1 + 1) * S) X1 = (vx1 + 1) * S;
+        if (X0 < Xlo) X0 = Xlo;
+        if (X1 > Xhi) X1 = Xhi;
         uint32_t shade = sp->shaded ? (uint32_t)sp->shseg * 16 + sp->shbase : 0;
         for (int X = X0; X < X1; X++) {
-            if (X - vx0 * S < WALLH_MAX && wallh[X - vx0 * S] > sp->height * 4.0) continue;   /* behind a wall (wall units) */
-            int c = (int)floor(((X + 0.5) / S - sp->xc) / k) + 32;
+            if (!sp->top && wallh[X - g0 * S] > ht * 4.0) continue;   /* behind a wall (wall units) */
+            int c = (int)floor(((X + 0.5) / S - xc) / k) + 32;
             if (c < left || c > right) continue;
             unsigned cmd = seg_word(sp->seg, 4 + 2 * (c - left));
-            int x = X / S;
+            int x = (X + OX) / S - E, gate = !sp->pass && x >= 0 && x < 320;
             for (int guard = 0; guard < 64; guard++, cmd += 6) {
                 int end = seg_word(sp->seg, cmd) >> 1;
                 if (!end) break;
@@ -491,14 +715,13 @@ static int compose_inner(uint32_t *out, int S, int *w, int *h)
                 if (Ya < vy0 * S) Ya = vy0 * S;
                 if (Yb > (vy1 + 1) * S) Yb = (vy1 + 1) * S;
                 for (int Y = Ya; Y < Yb; Y++) {
-                    uint8_t ox = ow[Y / S][x];
-                    if (ox == DRAW_OTHER) continue;
+                    if (gate && ow[Y / S][x] == DRAW_OTHER) continue;
                     int r = (int)floor(32.0 + (Y + 0.5 - yc) / S / hh * 32.0);
                     if (r < st) r = st;
                     if (r >= end) r = end - 1;
                     unsigned texel = mem[((uint32_t)sp->seg * 16 + (uint16_t)(src + r)) & 0xFFFFF];
                     if (shade) texel = mem[(shade + texel) & 0xFFFFF];
-                    out[(size_t)Y * W + X] = pal[texel];
+                    out[(size_t)Y * W + OX + X] = pal[texel];
                 }
             }
         }

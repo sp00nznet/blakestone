@@ -25,6 +25,7 @@
 
 CPU g_cpu;
 int g_recomp_tick_budget = 1;
+int g_tick_hold;                         /* no interrupts, no time: a widescreen side pass */
 
 /* ---- host clock ------------------------------------------------------------ */
 
@@ -301,7 +302,7 @@ void recomp_tick(CPU *cpu)
 {
     static int busy;
     g_recomp_tick_budget = 2000;
-    if (busy) return;
+    if (busy || g_tick_hold) return;
     busy = 1;
     polls++;
     virt_us += POLL_US;

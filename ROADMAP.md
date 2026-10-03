@@ -19,9 +19,6 @@ top of it, roughly in order of how much love per hour they give.
   and a CRT mode with a little horizontal bloom.
 - **Audio**: an OPL3 option (ymfm has it) and a proper resampler for the
   Sound Blaster's 7 kHz effects.
-- **Widescreen.** Needs the raycaster to cast more columns than the game's
-  view has; the per-column capture would have to come from a native
-  re-cast of the tile map, which is now located (docs/renderer.md).
 - **Quality of life**: rebinding keys from the host, autosave on level change.
 
 ## Deferred

@@ -396,6 +396,77 @@ def _mem(op):
     return None
 
 
+def _callees(entries, seq, lin):
+    out = []
+    for i in seq.get(lin, []):
+        if i.mnemonic == 'call' and i.op1 is not None:
+            if i.op1.type == OpType.FAR:
+                out.append(i.op1.far_seg * 16 + i.op1.disp)
+            elif i.op1.type == OpType.REL16:
+                out.append(entries[lin] * 16 + (i.op1.disp & 0xFFFF))
+    return out
+
+
+def find_widescreen(entries, seq, ray, hooks):
+    """What the widescreen side passes need (docs/renderer.md, "Widescreen"):
+    WallRefresh (the raycaster's caller) and the player fields it turns into
+    the view, DrawScaleds (ThreeDRefresh's callee that reaches the lit sprite
+    column routine), and from the raycaster midangle and pixelangle[].
+    Returns {} if any piece is missing; widescreen is then off."""
+    w = {}
+    r = seq[ray]
+    for k, i in enumerate(r[:40]):             # mov cx,[midangle] ... add cx,[bx+pixelangle]
+        if i.mnemonic == 'add' and repr(i.op1) == 'cx' and i.op2 is not None \
+                and i.op2.type == OpType.MEM and i.op2.base == 'bx' and not i.op2.index:
+            w['pixelangle'] = i.op2.disp & 0xFFFF
+            for j in reversed(r[:k]):
+                if j.mnemonic == 'mov' and repr(j.op1) == 'cx' and _mem(j.op2) is not None:
+                    w['midangle'] = _mem(j.op2)
+                    break
+            break
+    wr = [lin for lin in seq if ray in _callees(entries, seq, lin)]
+    if len(wr) == 1:
+        s = seq[wr[0]]
+        for k, i in enumerate(s[:12]):          # mov bx,[player]; mov ax,[bx+angle]
+            if i.mnemonic == 'mov' and repr(i.op1) == 'bx' and _mem(i.op2) is not None and k + 1 < len(s):
+                j = s[k + 1]
+                if repr(j.op1) == 'ax' and j.op2 is not None and j.op2.type == OpType.MEM and j.op2.base == 'bx':
+                    w['player'], w['p_angle'] = _mem(i.op2), j.op2.disp & 0xFFFF
+                    break
+        # mov cx,[bx+hi]; mov bx,[bx+lo] -- player->x, then player->y
+        xy = [i.op2.disp & 0xFFFF for k, i in enumerate(s)
+              if k and i.mnemonic == 'mov' and repr(i.op1) == 'bx' and i.op2 is not None
+              and i.op2.type == OpType.MEM and i.op2.base == 'bx' and repr(s[k - 1].op1) == 'cx']
+        if len(xy) >= 2:
+            w['p_x'], w['p_y'] = xy[:2]
+        # focallength: the one 32-bit value pushed to both FixedByFrac calls
+        pushed = {}
+        for i in s:
+            if i.mnemonic == 'push' and _mem(i.op1) is not None:
+                pushed[_mem(i.op1)] = pushed.get(_mem(i.op1), 0) + 1
+        twice = [a for a, n in pushed.items() if n >= 2 and pushed.get(a + 2, 0) >= 2]
+        if twice:
+            w['focal'] = min(twice)
+        lit = {lin for lin, h in hooks.items() if isinstance(h, tuple) and h[0] == 'scol' and h[1]}
+
+        def reaches(lin, depth):
+            return lin in lit or (depth > 0 and any(reaches(t, depth - 1) for t in _callees(entries, seq, lin)))
+        td = [lin for lin in seq if wr[0] in _callees(entries, seq, lin)]
+        # the first such callee: DrawScaleds comes before the weapon, which in
+        # Planet Strike is lit too
+        ds = [t for t in _callees(entries, seq, td[0]) if t != wr[0] and reaches(t, 3)] if len(td) == 1 else []
+        if ds:
+            w['f_wall'], w['f_scaleds'] = wr[0], ds[0]
+    need = ('pixelangle', 'midangle', 'player', 'p_angle', 'p_x', 'p_y', 'focal', 'f_wall', 'f_scaleds')
+    missing = [n for n in need if n not in w]
+    if missing:
+        print(f'  widescreen: not found ({", ".join(missing)}), off')
+        return {}
+    hooks[w['f_scaleds']] = 'side'
+    print('  widescreen: ' + ' '.join(f'{n}={w[n]:04X}' for n in need))
+    return w
+
+
 def find_renderer(entries, bodies, smc):
     """What the hi-res renderer (src/hires.c) needs, read out of this game's
     own code so no address is written down per version. See docs/renderer.md.
@@ -565,6 +636,7 @@ def find_renderer(entries, bodies, smc):
                 v.setdefault('sp_cmdoff', _mem(s[k + 1].op2))
     v.setdefault('sp_shseg', 0)
     v.setdefault('sp_shoff', 0)
+    v.update(find_widescreen(entries, seq, ray[0], hooks))
     v.setdefault('pl_shseg', 0)
     v.setdefault('pl_shoff', 0)
     for lin, fl in plane_flags.items():
@@ -679,6 +751,8 @@ def main():
                 elif hook == 'wall':
                     f.write(f'void {names[lin]}(CPU *cpu) {{ int _t = g_draw_tag; g_draw_tag = DRAW_WALL; '
                             f'{names[lin]}_body(cpu); g_draw_tag = _t; }}\n\n')
+                elif hook == 'side':                      # DrawScaleds, then the widescreen side passes
+                    f.write(f'void {names[lin]}(CPU *cpu) {{ {names[lin]}_body(cpu); hires_side(cpu); }}\n\n')
                 elif hook == 'sprite':
                     f.write(f'void {names[lin]}(CPU *cpu) {{ int _t = g_draw_tag; g_draw_tag = DRAW_SPRITE; '
                             f'{names[lin]}_body(cpu); g_draw_tag = _t; }}\n\n')
@@ -722,9 +796,16 @@ def main():
         hn = ('yint', 'xint', 'pixx', 'wallheight', 'postseg', 'postoff', 'lightflag',
               'normalshade', 'shademax', 'ls_seg', 'ls_off', 'centery',
               'pl_bp', 'pl_cx', 'pl_dxh', 'pl_dxl', 'pl_sih', 'pl_sil', 'pl_di', 'pl_texseg',
-              'pl_shseg', 'pl_shoff', 'sp_cmdseg', 'sp_cmdoff', 'sp_shseg', 'sp_shoff')
+              'pl_shseg', 'pl_shoff', 'sp_cmdseg', 'sp_cmdoff', 'sp_shseg', 'sp_shoff',
+              'pixelangle', 'midangle', 'player', 'p_angle', 'p_x', 'p_y', 'focal')
+        ws = 'f_wall' in hv
         f.write('const HiresVars g_hires = {' + ('1, ' if hv else '0, ')
-                + ', '.join(f'0x{hv.get(n, 0):04X}' for n in hn) + '};\n')
+                + ', '.join(f'0x{hv.get(n, 0):04X}' for n in hn) + f', {int(ws)}}};\n')
+        # The side passes call WallRefresh and DrawScaleds as the game does:
+        # a far call whose 0xFFFF return address makes its retf come back here.
+        f.write('void hires_side_call(CPU *cpu, int which) {'
+                + (f' push16(cpu, 0); push16(cpu, 0xFFFF); if (which) {names[hv["f_scaleds"]]}(cpu);'
+                   f' else {names[hv["f_wall"]]}(cpu);' if ws else ' (void)cpu; (void)which;') + ' }\n')
         f.write('const RecompFunc g_funcs[] = {\n')
         for lin in order:
             f.write(f'  {{0x{lin:05X}, {names[lin]}}},\n')
@@ -744,7 +825,7 @@ def main():
         f.write('};' + NL)
     json.dump({'game': game, 'dgroup': im.dgroup, 'functions': len(order),
                'codesegs': sorted(codesegs), 'unhandled': unhandled,
-               'renderer': bool(hv)},
+               'renderer': bool(hv), 'widescreen': 'f_wall' in hv},
               open(os.path.join(work, 'lift.json'), 'w'), indent=1)
     if unhandled:
         print(f'  unhandled instruction forms: {sum(unhandled.values())} '

@@ -48,20 +48,26 @@ section 10): the toolkit ships, the output never does.
 | Gamepad (XInput, as keys) | implemented, untested | implemented, untested |
 | Full playthrough | not yet | not yet |
 | Hi-res 3D view (walls, floor, ceiling, sprites) | ✅ | ✅ |
-| **Conformance** ([docs](docs/conformance.md)) | **16/16** | **15/15** |
+| **Conformance** ([docs](docs/conformance.md)) | **18/18** | **17/17** |
 
 Everything marked ✅ was seen working: in scripted headless runs, which the
 conformance harness repeats, and the window on a virtual monitor. Nobody has
 yet played either game end to end with hands on a keyboard, mouse or pad.
 Treat this as an alpha: it will have bugs a full playthrough would find.
 
-## The remaster: a hi-res 3D view
+## The remaster: a hi-res, widescreen 3D view
 
-In a window the 3D view is redrawn at 4× (1280×800): walls, floor, ceiling, actors,
-objects and the weapon are drawn straight from the game's own art at full
-resolution, with the game's own lighting, while everything else is still the original code. **F10** compares it
-with the original; `--hires N` sets the scale. How it works, and why it asks the
-original raycaster rather than replacing it: [docs/renderer.md](docs/renderer.md).
+In a window the 3D view is redrawn at 4× and widened to 16:9 (1704×800).
+Walls, floor, ceiling, actors, objects and the weapon are drawn straight from
+the game's own art at full resolution, with the game's own lighting, and
+everything else is still the original code. The extra view at the sides is
+cast by the game's own raycaster, turned left and right, with every byte put
+back afterwards. **F10** cycles widescreen → original → hi-res 4:3;
+`--hires N` sets the scale and `--widescreen 21:9` (or `off`) the shape. How it
+works, and why it asks the original raycaster rather than replacing it:
+[docs/renderer.md](docs/renderer.md).
+
+![Aliens of Gold, hi-res at 16:9](docs/screenshots/wide-aog.png)
 
 | *Aliens of Gold*: original · hi-res | *Planet Strike*: original · hi-res |
 |---|---|
@@ -251,7 +257,8 @@ bstone_ps.exe  [options] [-- game arguments]
 |---|---|
 | `--fullscreen` | start fullscreen; **Alt+Enter** toggles |
 | `--scale N` | window size in multiples of 320×240 (default 3) |
-| `--hires N` | hi-res 3D view at N × 320×200 (default 4 in a window, off headless); **F10** toggles |
+| `--hires N` | hi-res 3D view at N × 320×200 (default 4 in a window, off headless) |
+| `--widescreen A` | widen the hi-res view to aspect `A`: `16:9` (default in a window), `21:9`, or `off` (default headless). **F10** cycles widescreen → original → hi-res 4:3 |
 | `--display MODE` | `sharp` (4:3, the default), `pixel` (whole multiples, square pixels) or `crt` (4:3 with scanlines); **F11** cycles them |
 | `--mute` | no sound |
 | `--data DIR` / `--save DIR` | game files / where CONFIG and saved games go |

@@ -32,6 +32,22 @@ static int mode = 3;                 /* BIOS mode: 3 text, 0x13 graphics */
 static int chain4 = 0;
 static uint8_t misc_out = 0x63;
 
+/* While held (the hi-res widescreen side passes, src/hires.c) video memory
+ * takes no writes and the registers the pass programs are put back after. */
+static int held;
+static uint8_t held_regs[8 + 16 + 4 + 2];
+void vga_hold(int on)
+{
+    if (on) {
+        memcpy(held_regs, seq, 8); memcpy(held_regs + 8, gc, 16); memcpy(held_regs + 24, latch, 4);
+        held_regs[28] = seq_i; held_regs[29] = gc_i;
+    } else {
+        memcpy(seq, held_regs, 8); memcpy(gc, held_regs + 8, 16); memcpy(latch, held_regs + 24, 4);
+        seq_i = held_regs[28]; gc_i = held_regs[29];
+    }
+    held = on;
+}
+
 uint8_t *vga_text_mem(void) { return g_cpu.mem + 0xB8000; }
 
 static inline int chained(void) { return (seq[4] & 8) != 0; }
@@ -92,6 +108,7 @@ int recomp_mem_write8(CPU *cpu, uint32_t a, uint8_t v)
     { void vgaprof_note(void *ra); vgaprof_note(_ReturnAddress()); }
 #endif
     (void)cpu;
+    if (held) return 1;                          /* a widescreen side pass: draws nothing */
     uint32_t off = a - 0xA0000u;
     if (chain4) { vram[off] = v; owner[off] = (uint8_t)g_draw_tag; return 1; }
     uint8_t mask = seq[2] & 0x0F;

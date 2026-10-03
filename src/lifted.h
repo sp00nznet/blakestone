@@ -40,8 +40,12 @@ typedef struct {
     uint16_t lightflag, normalshade, shademax, ls_seg, ls_off, centery;
     uint16_t pl_bp, pl_cx, pl_dxh, pl_dxl, pl_sih, pl_sil, pl_di, pl_texseg, pl_shseg, pl_shoff;
     uint16_t sp_cmdseg, sp_cmdoff, sp_shseg, sp_shoff;
+    uint16_t pixelangle, midangle, player, p_angle, p_x, p_y, focal;   /* widescreen */
+    int ws_ok;
 } HiresVars;
 extern const HiresVars g_hires;
+void hires_side(CPU *cpu);                      /* after DrawScaleds: the side passes */
+void hires_side_call(CPU *cpu, int which);      /* generated: 0 WallRefresh, 1 DrawScaleds */
 
 /* ---- services ---- */
 void dos_int21(CPU *cpu);
