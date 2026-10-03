@@ -362,7 +362,24 @@ int cpu_alloc_mem(CPU *cpu)
 #ifdef RECOMP_TRACE
 static const char *ring[64];
 static unsigned ring_n;
-void recomp_enter(const char *fn) { ring[ring_n++ & 63] = fn; }
+/* BSTONE_CALLS=from-to (ms of game time): each lifted function entered in
+ * that window, once, in order of first entry -- diff two runs to find the
+ * code a key press reaches */
+void recomp_enter(const char *fn)
+{
+    ring[ring_n++ & 63] = fn;
+    static int init;
+    static unsigned from, to;
+    static const char *seen[8192];
+    static int nseen;
+    if (!init) { init = 1; const char *e = getenv("BSTONE_CALLS"); if (!e || sscanf(e, "%u-%u", &from, &to) != 2) to = 0; }
+    if (!to) return;
+    uint64_t ms = emu_us() / 1000;
+    if (ms < from || ms >= to) return;
+    for (int i = 0; i < nseen; i++) if (seen[i] == fn) return;
+    if (nseen < 8192) seen[nseen++] = fn;
+    fprintf(stderr, "[call] %s\n", fn);
+}
 void recomp_trace_dump(const char *why)
 {
     fprintf(stderr, "  [%s] last functions:", why);

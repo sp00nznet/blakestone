@@ -54,6 +54,7 @@ static inline uint16_t rd16(uint16_t seg, uint16_t off) { return mem_read16(&g_c
 /* Widescreen (see hires_side): the game's own frame is pass 0; passes 1 and 2
  * are the view rotated left and right, cast by the game's code again. */
 static int pass;
+static uint16_t dgroup;                  /* DGROUP, as the raycaster saw it */
 static Col side_cur[2][320], side_shown[2][320];
 static int wide_cols;                    /* game columns added each side; 0 off */
 static int side_ran, side_shown_ok;      /* the side passes ran for this frame */
@@ -96,6 +97,7 @@ void hires_hit(CPU *c)
     fcur.ls_off = rd16(ds, h->ls_off);
     fcur.centery = rd16(ds, h->centery);
     dirty = 1;
+    dgroup = ds;
 }
 
 /* ---- floor and ceiling --------------------------------------------------
@@ -386,6 +388,55 @@ void hires_side(CPU *c)
     side_rot = delta * M_PI / 180;
     side_ran = 1;
     side_us += host_us() - t0; side_n++;
+}
+
+/* The player's position in tiles and angle in degrees (0 east, 90 north), for
+ * the --route autopilot (host.c); 0 before the first 3D frame. */
+int hires_player(double *x, double *y, int *angle)
+{
+    const HiresVars *h = &g_hires;
+    if (!h->ws_ok || !dgroup) return 0;
+    uint16_t pl = rd16(dgroup, h->player);
+    if (!pl) return 0;
+    *x = rd32(dgroup, (uint16_t)(pl + h->p_x)) / 65536.0;
+    *y = rd32(dgroup, (uint16_t)(pl + h->p_y)) / 65536.0;
+    *angle = rd16(dgroup, (uint16_t)(pl + h->p_angle));
+    return 1;
+}
+
+/* BSTONE_POS=file (a development aid for writing scripted runs): every 250 ms
+ * of game time the player's tile, fraction and angle go to stderr, and all of
+ * DGROUP to file (the tilemap, tilemap[x][y], is at g_hires.tilemap). */
+void hires_debug_pos(unsigned ms)
+{
+    static const char *path;
+    static int init;
+    static unsigned next;
+    const HiresVars *h = &g_hires;
+    if (!init) { init = 1; path = getenv("BSTONE_POS"); }
+    if (!path || !h->ws_ok || !dgroup || ms < next) return;
+    next = ms + 250;
+    uint16_t pl = rd16(dgroup, h->player);
+    if (!pl) return;
+    /* BSTONE_WARP=ms:x,y,angle (tiles, degrees): move the player there once,
+     * to look around a map while writing a script; never used by a checked run */
+    static int warped;
+    const char *wp = getenv("BSTONE_WARP");
+    double wx, wy; int wa; unsigned wt;
+    if (wp && !warped && sscanf(wp, "%u:%lf,%lf,%d", &wt, &wx, &wy, &wa) == 4 && ms >= wt) {
+        warped = 1;
+        wr32(dgroup, (uint16_t)(pl + h->p_x), (int32_t)(wx * 65536));
+        wr32(dgroup, (uint16_t)(pl + h->p_y), (int32_t)(wy * 65536));
+        mem_write16(&g_cpu, dgroup, (uint16_t)(pl + h->p_angle), (uint16_t)wa);
+    }
+    int32_t x = rd32(dgroup, (uint16_t)(pl + h->p_x)), y = rd32(dgroup, (uint16_t)(pl + h->p_y));
+    fprintf(stderr, "[pos] t=%u tile=%d,%d at %.2f,%.2f angle=%d\n", ms, x >> 16, y >> 16,
+            x / 65536.0, y / 65536.0, rd16(dgroup, (uint16_t)(pl + h->p_angle)));
+    FILE *f = fopen(path, "wb");
+    if (f) {
+        fwrite(g_cpu.mem + dgroup * 16u, 1, 0x10000, f);   /* all of DGROUP; the tilemap is at g_hires.tilemap */
+        fclose(f);
+    }
 }
 
 /* The game flips pages by moving the CRTC start address once a frame is

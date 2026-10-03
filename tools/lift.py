@@ -424,6 +424,11 @@ def find_widescreen(entries, seq, ray, hooks):
                     w['midangle'] = _mem(j.op2)
                     break
             break
+    for i in r:                                 # mov al,[si+tilemap] -- for BSTONE_POS (src/hires.c)
+        if i.mnemonic == 'mov' and repr(i.op1) == 'al' and i.op2 is not None and i.op2.type == OpType.MEM \
+                and i.op2.base in ('si', 'di') and not i.op2.index:
+            w['tilemap'] = i.op2.disp & 0xFFFF
+            break
     wr = [lin for lin in seq if ray in _callees(entries, seq, lin)]
     if len(wr) == 1:
         s = seq[wr[0]]
@@ -797,7 +802,7 @@ def main():
               'normalshade', 'shademax', 'ls_seg', 'ls_off', 'centery',
               'pl_bp', 'pl_cx', 'pl_dxh', 'pl_dxl', 'pl_sih', 'pl_sil', 'pl_di', 'pl_texseg',
               'pl_shseg', 'pl_shoff', 'sp_cmdseg', 'sp_cmdoff', 'sp_shseg', 'sp_shoff',
-              'pixelangle', 'midangle', 'player', 'p_angle', 'p_x', 'p_y', 'focal')
+              'pixelangle', 'midangle', 'player', 'p_angle', 'p_x', 'p_y', 'focal', 'tilemap')
         ws = 'f_wall' in hv
         f.write('const HiresVars g_hires = {' + ('1, ' if hv else '0, ')
                 + ', '.join(f'0x{hv.get(n, 0):04X}' for n in hn) + f', {int(ws)}}};\n')

@@ -169,6 +169,37 @@ def check_game(game):
        rc == 0 and wide[0] == 1704 and same and filled > 0.98 and cols >= 8,
        f'{wide[0]}x{wide[1]}, middle {"identical" if same else "DIFFERS"}, strips {filled:.0%} drawn, {cols}+ colours')
 
+    # A longer mission on Aliens of Gold's floor 1, steered by the --route
+    # autopilot (src/host.c) so the walk lands the same way every run: kill
+    # the two guards up the corridor, pick up the gun one drops, open the
+    # elevator door, step in and press the switch, ask for floor 2. The game
+    # answers that the RED access card comes first -- floor 2 needs the card,
+    # which lies in a room guarded by plasma spheres (ROADMAP). Each step is
+    # checked on the status bar the game draws.
+    if game == 'aog':
+        out = os.path.join(base, 'mission')
+        route = ('47000;go 37.5,48.5;fire 3000;go 36.5,43.5;wait 300;go 37.5,42.5;go 35.5,42.5;face 180;'
+                 'use;wait 1500;go 33.5,42.5;go 33.5,41.5;face 0;use;wait 2500;key 2;wait 1500')
+        rc, err, errs = run(game, out, 64, ENTER_THROUGH,
+                            {'start': 47000, 'fought': 51700, 'picked': 52900, 'panel': 63500},
+                            extra=['--route', route])
+        shot = {n: read_bmp(os.path.join(out, n + '.bmp')) for n in ('start', 'fought', 'picked', 'panel')}
+
+        def changed(a, b, box):
+            ra, rb = region(shot[a], *box), region(shot[b], *box)
+            return sum(p != q for p, q in zip(ra, rb))
+        steps = err.count('[route] step')
+        ok('mission: the route is walked, no step stuck',
+           rc == 0 and '[route] done' in err and 'STUCK' not in err and not errs,
+           f'{steps} steps' + (', STUCK' if 'STUCK' in err else ''))
+        ok('mission: an enemy killed (the score goes up)', changed('start', 'fought', (250, 153, 316, 168)) > 30,
+           f'{changed("start", "fought", (250, 153, 316, 168))} score pixels changed')
+        ok('mission: a pickup (the dropped gun in the weapon panel)', changed('fought', 'picked', (178, 152, 232, 196)) > 100,
+           f'{changed("fought", "picked", (178, 152, 232, 196))} weapon-panel pixels changed')
+        view = region(shot['panel'], 8, 24, 312, 140)
+        blue = sum((p & 255) > 2 * (p >> 16 & 255) + 20 and (p & 255) > 2 * (p >> 8 & 255) + 20 for p in view) / len(view)
+        ok('mission: the elevator switch brings up the floor panel', blue > 0.1, f'{blue:.0%} panel blue')
+
     # Save from inside a mission, then load it in a fresh process: ESC opens
     # the LINC menu on NEW MISSION, and SAVE/LOAD MISSION are three up from it
     # (wrapping past LOGOFF and BACK TO ...). The title waits for a key, so

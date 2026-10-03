@@ -33,6 +33,10 @@ with scripted keys (`--keys`) and fixed-time frame grabs (`--shot-at`).
 | hires: the 3D view is redrawn at 4x | the same moment at `--hires 4` is not 1280×800, or its view is the original enlarged (≤ 2% of pixels differ) |
 | widescreen: found in the game's code | `find_widescreen()` could not read WallRefresh, DrawScaleds and the player fields out of this build |
 | widescreen: the view reaches into both sides, the 4:3 picture unchanged | at `--widescreen 16:9` the frame is not 1704×800, its side strips are not drawn, or its 4:3 middle differs from the 4:3 run's — the side passes disturbed the game |
+| mission: the route is walked, no step stuck (*Aliens of Gold*) | the `--route` autopilot could not reach a waypoint within 4 s, or the run ended badly |
+| mission: an enemy killed | the score box did not change after the two guards up the first corridor were shot |
+| mission: a pickup | the weapon panel did not change when the player walked over the gun a guard dropped |
+| mission: the elevator switch brings up the floor panel | opening the elevator door, stepping in and pressing the switch did not bring up the floor-select panel |
 | load: the saved mission loads into the 3D view | a fresh process, LOAD MISSION → slot 0, is not back in a textured view |
 
 *Planet Strike*'s starting pistol is an FM sound, and its digitized sounds
@@ -51,6 +55,34 @@ say) changes start-up timing, so the harness always starts from a fresh one.
 `tests/conformance_baseline.json` holds the pass count per game. A run that
 passes fewer fails with `REGRESSION` and a non-zero exit. `--update` writes the
 current counts; do that only when a change adds checks or fixes one.
+
+## Routes: scripted walks
+
+Key timings are fine for menus, but they drift over a walk across a map. The
+mission scenario uses `--route` instead, an autopilot in `src/host.c`. It
+reads the player's position each frame (using the fields `find_widescreen()`
+locates) and presses the keys a player would: turn toward the next waypoint,
+walk, and try Use when a walk stalls at a door. Headless time is
+deterministic, so a route lands the same way every run.
+
+The route ends with the game refusing floor 2: *"You must first get the RED
+access card!"*. On floor 1 the card lies at tile (51,47), in a room ringed by
+three plasma spheres and two sentinels, behind a one-tile corridor where an
+informant stands. A route that fetches it is on the ROADMAP.
+
+Three development aids made the route, and no check uses them:
+
+- `BSTONE_POS=file` logs the player's tile and angle every 250 ms and dumps
+  DGROUP to `file`. The tilemap (`tilemap[x][y]`) is at the address
+  `find_widescreen()` reports. In *Aliens of Gold* the static list starts at
+  `83EBh`, with 12-byte entries: tile x, tile y, …, shape at +6, flags at +8
+  (2 = pickup), item at +10.
+- `BSTONE_WARP=ms:x,y,angle` moves the player once, to look around a map.
+- `BSTONE_CALLS=from-to` (trace builds, `-DBSTONE_TRACE=ON`) lists the lifted
+  functions entered in that window of game time. Diffing a run with a key
+  press against one without finds the code the key reaches. That is how the
+  use handler, and with it the elevator rule (switch tiles `& 3Fh` = 15h or
+  1Bh, only while facing east or west), was found.
 
 ## Where it runs
 

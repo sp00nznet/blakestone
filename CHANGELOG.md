@@ -7,6 +7,13 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- A longer conformance mission (*Aliens of Gold*): kill the first two guards,
+  pick up the gun one drops, open the elevator and press its switch, which
+  brings up the floor panel. It is steered by `--route`, a test autopilot that
+  walks the player to waypoints by reading where it is each frame. AOG is now
+  22/22. Development aids for writing routes: `BSTONE_POS` (position log and
+  DGROUP dump), `BSTONE_WARP`, and `BSTONE_CALLS` (trace builds: the functions
+  a key press reaches).
 - Widescreen: `--widescreen 16:9` (default in a window; `21:9`, `off`) widens
   the hi-res 3D view past the screen's edges. The extra rays and sprites come
   from the game's own WallRefresh and DrawScaleds, run again turned left and

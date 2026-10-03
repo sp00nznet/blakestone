@@ -41,6 +41,7 @@ typedef struct {
     uint16_t pl_bp, pl_cx, pl_dxh, pl_dxl, pl_sih, pl_sil, pl_di, pl_texseg, pl_shseg, pl_shoff;
     uint16_t sp_cmdseg, sp_cmdoff, sp_shseg, sp_shoff;
     uint16_t pixelangle, midangle, player, p_angle, p_x, p_y, focal;   /* widescreen */
+    uint16_t tilemap;                                                  /* BSTONE_POS */
     int ws_ok;
 } HiresVars;
 extern const HiresVars g_hires;

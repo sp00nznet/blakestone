@@ -174,6 +174,114 @@ static void keys_due(void)
     }
 }
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
+/* ---- autopilot (--route) ------------------------------------------------------
+ *
+ * Key timings are fine for menus but drift on a walk across a map, so a test
+ * run can steer instead: from a start time it walks the player to waypoints,
+ * reading where the player is each frame and pressing the keys a player would.
+ * Headless time is deterministic, so a route lands the same way every run.
+ *
+ *   --route "47000;go 37.5,48;fire 3000;go 37.5,42.5;face 180;use;wait 1000"
+ *
+ *   go X,Y    turn toward the point (tiles) and walk until within a quarter tile
+ *   face A    turn to angle A (degrees: 0 east, 90 north)
+ *   use       press SPACE          fire MS   hold CTRL for MS
+ *   key K     press key K          wait MS   do nothing for MS
+ *
+ * Each finished step is logged as "[route] ..."; a step that makes no progress
+ * for 4 s is logged as stuck and skipped. */
+int hires_player(double *x, double *y, int *angle);
+
+typedef struct { char op; double a, b; int k; } RouteStep;
+static RouteStep route[128];
+static int nroute, route_i;
+static uint64_t route_at, step_at;
+static double step_best;
+static uint64_t step_best_at;
+static uint8_t route_down[0x200];
+
+static void route_key(int sc, int down)
+{
+    if (route_down[sc & 0x1FF] == down) return;
+    route_down[sc & 0x1FF] = (uint8_t)down;
+    if (ext_of(sc)) kbd_scancode(0xE0);
+    kbd_scancode((uint8_t)(sc | (down ? 0 : 0x80)));
+}
+
+static void route_release(void)
+{
+    for (int sc = 0; sc < 0x200; sc++) if (route_down[sc]) route_key(sc, 0);
+}
+
+static void route_parse(void)
+{
+    const char *p = g_opt.route;
+    if (!p) return;
+    route_at = (uint64_t)(atof(p) * PIT_HZ / 1000.0);
+    while ((p = strchr(p, ';')) != NULL && nroute < 128) {
+        p++;
+        char op[16] = {0}, arg[32] = {0};
+        RouteStep s = {0};
+        sscanf(p, "%15[^ ;] %31[^;]", op, arg);
+        if (!strcmp(op, "go"))        { s.op = 'g'; sscanf(arg, "%lf,%lf", &s.a, &s.b); }
+        else if (!strcmp(op, "face")) { s.op = 'f'; s.a = atof(arg); }
+        else if (!strcmp(op, "use"))  { s.op = 'k'; s.k = key_by_name("SPACE"); s.a = 150; }
+        else if (!strcmp(op, "fire")) { s.op = 'k'; s.k = key_by_name("CTRL"); s.a = atof(arg); }
+        else if (!strcmp(op, "key"))  { s.op = 'k'; s.k = key_by_name(arg); s.a = 150; }
+        else if (!strcmp(op, "wait")) { s.op = 'w'; s.a = atof(arg); }
+        else { fprintf(stderr, "[route] unknown step '%s'\n", op); continue; }
+        route[nroute++] = s;
+    }
+}
+
+static void route_next(const char *how, double x, double y, int ang)
+{
+    route_release();
+    fprintf(stderr, "[route] step %d %s at %.2f,%.2f angle %d, t=%llu\n", route_i + 1, how, x, y, ang,
+            (unsigned long long)(pit_now() * 1000 / PIT_HZ));
+    route_i++;
+    step_at = pit_now();
+    step_best = 1e9;
+    step_best_at = step_at;
+    if (route_i == nroute) fprintf(stderr, "[route] done\n");
+}
+
+static void route_due(void)
+{
+    uint64_t now = pit_now();
+    if (route_i >= nroute || now < route_at) return;
+    double x, y; int ang;
+    if (!hires_player(&x, &y, &ang)) return;
+    if (!step_at) { step_at = now; step_best = 1e9; step_best_at = now; }
+    const RouteStep *s = &route[route_i];
+    double ms = (double)(now - step_at) * 1000 / PIT_HZ;
+    int left = key_by_name("LEFT"), right = key_by_name("RIGHT"), up = key_by_name("UP");
+    if (s->op == 'w') { if (ms >= s->a) route_next("waited", x, y, ang); return; }
+    if (s->op == 'k') {
+        route_key(s->k, ms < s->a);
+        if (ms >= s->a + 100) route_next("pressed", x, y, ang);   /* and let go */
+        return;
+    }
+    /* turning toward a heading: y grows southward, angles counterclockwise */
+    double want = s->op == 'f' ? s->a : atan2(y - s->b, s->a - x) * 180 / M_PI;
+    double err = fmod(want - ang + 540.0, 360.0) - 180.0;
+    double dist = s->op == 'g' ? hypot(s->a - x, s->b - y) : fabs(err);
+    double thr = s->op == 'f' ? 2 : 4;                 /* walking tolerates a little wander */
+    if (s->op == 'g' ? dist < 0.25 : fabs(err) <= thr) { route_next(s->op == 'g' ? "reached" : "faced", x, y, ang); return; }
+    if (dist < step_best - 0.05) { step_best = dist; step_best_at = now; }
+    double stalled = (double)(now - step_best_at) * 1000 / PIT_HZ;
+    if (stalled > 4000) { route_next("STUCK", x, y, ang); return; }
+    /* a walk that stalls is usually at a closed door: try it, as a player would */
+    route_key(key_by_name("SPACE"), s->op == 'g' && stalled > 800 && stalled < 950);
+    route_key(left, err > thr);
+    route_key(right, err < -thr);
+    route_key(up, s->op == 'g' && fabs(err) < 30);
+}
+
 /* ---- window ---------------------------------------------------------------- */
 
 #ifdef _WIN32
@@ -448,6 +556,7 @@ void host_init(void)
     if (!wide_aspect) wide_aspect = 16.0 / 9;           /* what F10 turns on */
     hires_set_wide(wide_on ? wide_aspect : 0);
     keys_parse();
+    route_parse();
     if (g_opt.record) rec_open();
     if (g_opt.wav && (wav_out = fopen(g_opt.wav, "wb")) != NULL) wav_header(wav_out, 0);
 #ifdef _WIN32
@@ -476,8 +585,10 @@ void host_frame(void)
 {
     static uint64_t last_present;
     keys_due();
+    route_due();
     uint64_t now = pit_now();
     shots_due(now);
+    { void hires_debug_pos(unsigned); hires_debug_pos((unsigned)(now * 1000 / PIT_HZ)); }
     if (g_opt.seconds > 0 && now >= (uint64_t)(g_opt.seconds * PIT_HZ)) dos_exit(0);
     if (rec_video) {
         uint64_t per = (uint64_t)(PIT_HZ / REC_FPS);

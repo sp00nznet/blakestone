@@ -48,7 +48,7 @@ section 10): the toolkit ships, the output never does.
 | Gamepad (XInput, as keys) | implemented, untested | implemented, untested |
 | Full playthrough | not yet | not yet |
 | Hi-res 3D view (walls, floor, ceiling, sprites) | ✅ | ✅ |
-| **Conformance** ([docs](docs/conformance.md)) | **18/18** | **17/17** |
+| **Conformance** ([docs](docs/conformance.md)) | **22/22** | **17/17** |
 
 Everything marked ✅ was seen working: in scripted headless runs, which the
 conformance harness repeats, and the window on a virtual monitor. Nobody has
@@ -267,6 +267,7 @@ bstone_ps.exe  [options] [-- game arguments]
 | `--record out.mp4` | record video and audio (needs ffmpeg) |
 | `--seconds N` | quit after N seconds |
 | `--keys "ms:KEY,..."` | scripted input, e.g. `--keys "3000:ENTER,9000:ENTER"` |
+| `--route "ms;go X,Y;use;..."` | test autopilot: walk the player to waypoints (see [docs/conformance.md](docs/conformance.md)) |
 | `--shot-at "ms:file.bmp,..."`, `--shot file.bmp`, `--wav out.wav` | frames and audio for testing |
 | `--trace` | log DOS calls and Sound Blaster commands to stderr |
 

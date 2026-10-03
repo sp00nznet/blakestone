@@ -7,8 +7,11 @@
   mapping and audio latency; fix what turns up.
 - **A full playthrough of each game.** The high-score table, level changes and
   the endings go through code no scripted run has reached yet.
-- **A longer conformance script**: an elevator to the next floor, a pickup, an
-  enemy killed.
+- **Floor 2 in the mission script.** The route already kills, picks up and
+  reaches the elevator panel; the game wants the RED card first. It lies at
+  (51,47) in a room of plasma spheres, past a one-tile corridor an informant
+  stands in (docs/conformance.md, "Routes"). Then the same for *Planet
+  Strike*, whose teleporter says "TELEPORT DISABLED" for every other area.
 
 ## The remaster
 
