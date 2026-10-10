@@ -23,11 +23,13 @@ SOFTWARE.
 ---
 
 This licence covers the contents of this repository: the lifter, the runtime,
-the tools, the scripts and the documentation. It does NOT cover DinoPark Tycoon
-itself.
+the tools, the scripts and the documentation. It does NOT cover Blake Stone:
+Aliens of Gold or Blake Stone: Planet Strike themselves.
 
-DinoPark Tycoon (1993) was developed by Manley & Associates and published by
-MECC. Its code, art, music and data are not in this repository and are not ours
-to license; rights most plausibly rest with Houghton Mifflin Harcourt. You need
-your own copy of the game to use any of this. The screenshots in docs/img are
-of the game running and are reproduced for illustration only.
+Blake Stone: Aliens of Gold (1993) and Blake Stone: Planet Strike (1994) were
+developed by JAM Productions and published by Apogee Software. Their code,
+art, music and data are not in this repository and are not ours to license.
+Planet Strike's source code, released under the GPL in 2013, is not used here
+either. You need your own copy of the games to use any of this. The
+screenshots in docs/screenshots are of the games running and are reproduced
+for illustration only.
