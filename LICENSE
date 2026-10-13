@@ -19,17 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-This licence covers the contents of this repository: the lifter, the runtime,
-the tools, the scripts and the documentation. It does NOT cover Blake Stone:
-Aliens of Gold or Blake Stone: Planet Strike themselves.
-
-Blake Stone: Aliens of Gold (1993) and Blake Stone: Planet Strike (1994) were
-developed by JAM Productions and published by Apogee Software. Their code,
-art, music and data are not in this repository and are not ours to license.
-Planet Strike's source code, released under the GPL in 2013, is not used here
-either. You need your own copy of the games to use any of this. The
-screenshots in docs/screenshots are of the games running and are reproduced
-for illustration only.
