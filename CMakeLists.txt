@@ -7,6 +7,9 @@
 #
 #   cmake -B build -G "Visual Studio 17 2022" -A x64
 #   cmake --build build --config Release
+#
+# Linux and macOS (gcc or clang, SDL2 for the window, sound and pad):
+#   cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
 cmake_minimum_required(VERSION 3.20)
 project(bstone C CXX)
 
@@ -32,6 +35,19 @@ if(MSVC)
     add_compile_options(/W1 /wd4996 /wd4244 /wd4146 /wd4102 /wd4101 /wd4267 /wd4018 /wd4305 /bigobj)
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
     add_link_options(/STACK:16777216)   # lifted call chains are deep
+    set(HOST_LIBS user32 gdi32 winmm)
+else()
+    if(NOT CMAKE_BUILD_TYPE)
+        set(CMAKE_BUILD_TYPE Release)
+    endif()
+    # 16-bit arithmetic wraps, and the lifted C aliases freely
+    add_compile_options(-w -fwrapv -fno-strict-aliasing)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
+    set(HOST_LIBS PkgConfig::SDL2 m)
+    if(APPLE)
+        add_link_options(-Wl,-stack_size,0x1000000)   # lifted call chains are deep
+    endif()
 endif()
 
 add_library(ymfm STATIC
@@ -47,11 +63,13 @@ foreach(game aog ps)
         file(GLOB lifted CONFIGURE_DEPENDS "${gen}/*.c")
         add_executable(bstone_${game} WIN32 ${RUNTIME} ${lifted})
         target_include_directories(bstone_${game} PRIVATE src "${gen}" "${PCRECOMP_HOME}/runtime")
-        target_link_libraries(bstone_${game} PRIVATE ymfm user32 gdi32 winmm)
+        target_link_libraries(bstone_${game} PRIVATE ymfm ${HOST_LIBS})
         if(BSTONE_TRACE)
             target_compile_definitions(bstone_${game} PRIVATE RECOMP_TRACE BSTONE_DEBUG)
-            target_compile_options(bstone_${game} PRIVATE /Zi /Oy-)
-            target_link_options(bstone_${game} PRIVATE /DEBUG)
+            if(MSVC)
+                target_compile_options(bstone_${game} PRIVATE /Zi /Oy-)
+                target_link_options(bstone_${game} PRIVATE /DEBUG)
+            endif()
         endif()
         if(MSVC)
             # a console subsystem exe that still opens a window: stdout stays useful
@@ -65,5 +83,5 @@ endforeach()
 # The hardware models on their own, no game data needed: what CI runs.
 add_executable(selftest tests/selftest.c src/vga.c src/x87.c src/audio.c src/opl.cpp)
 target_include_directories(selftest PRIVATE src "${PCRECOMP_HOME}/runtime")
-target_link_libraries(selftest PRIVATE ymfm)
+target_link_libraries(selftest PRIVATE ymfm $<$<NOT:$<BOOL:${WIN32}>>:m>)
 target_compile_definitions(selftest PRIVATE BSTONE_SELFTEST)

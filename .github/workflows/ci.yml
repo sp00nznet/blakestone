@@ -1,10 +1,11 @@
-# Build, test, lint on every push and PR (repo rules, section 8).
+# Build, test, lint on every push and PR (repo rules, section 8), on Windows,
+# Linux and macOS.
 #
 # The games are commercial and never in the repository, so CI cannot lift or
 # play them: it builds the runtime's selftest (the hardware models, no game
 # data), checks the Python, and runs the conformance harness, which reports
-# each game as skipped. The full 23-check run happens where the game data is;
-# see docs/conformance.md.
+# each game as skipped. The full run happens where the game data is; see
+# docs/conformance.md.
 name: ci
 on:
   push:
@@ -14,7 +15,11 @@ on:
 
 jobs:
   build-test:
-    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-24.04, macos-14]
+    runs-on: ${{ matrix.os }}
     env:
       # the toolkit revision this repo needs; README "Building from source"
       PCRECOMP_REF: fc852e31765e8661cdde4326f2e2335090a05c30   # pcrecomp main with #35-#39
@@ -28,13 +33,30 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Lint (Python compiles)
-        run: python -m py_compile tools/lift.py tools/conformance.py
-      - name: Configure
+      - name: SDL2 (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev
+      - name: SDL2 (macOS)
+        if: runner.os == 'macOS'
+        run: brew install sdl2 pkgconf
+      - name: Lint (Python compiles, shell parses)
+        shell: bash
+        run: |
+          python -m py_compile tools/lift.py tools/conformance.py
+          bash -n setup.sh
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
         run: cmake -B build -G "Visual Studio 17 2022" -A x64 "-DPCRECOMP_HOME=${{ github.workspace }}/_pcrecomp"
+      - name: Configure (Linux, macOS)
+        if: runner.os != 'Windows'
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release "-DPCRECOMP_HOME=${{ github.workspace }}/_pcrecomp"
       - name: Build selftest
         run: cmake --build build --config Release --target selftest
-      - name: Selftest
+      - name: Selftest (Windows)
+        if: runner.os == 'Windows'
         run: build/Release/selftest.exe
+      - name: Selftest (Linux, macOS)
+        if: runner.os != 'Windows'
+        run: build/selftest
       - name: Conformance (skips without game data)
         run: python tools/conformance.py

@@ -3,7 +3,7 @@
 # Blake Stone, recompiled
 
 **Aliens of Gold** (1993) and **Planet Strike** (1994), JAM Productions / Apogee —
-taken apart from their shipping DOS executables and rebuilt as native Windows programs.
+taken apart from their shipping DOS executables and rebuilt as native Windows, Linux and macOS programs.
 No DOSBox. No emulator. The 1993 machine code, translated once and compiled for a
 machine that did not exist when it shipped.
 
@@ -22,15 +22,15 @@ A static recompilation of both Blake Stone games. `tools/lift.py` unpacks each
 game's executable, finds every function in it, and lifts the 16-bit x86 to C with
 the [pcrecomp](https://github.com/sp00nznet/pcrecomp) toolkit; a small DOS machine
 in `src/` answers the DOS, VGA, Sound Blaster, AdLib, keyboard and timer the game
-expects. You supply the games; the build produces `bstone_aog.exe` and
-`bstone_ps.exe`.
+expects. You supply the games; the build produces `bstone_aog` and `bstone_ps`
+(`.exe` on Windows; SDL2 for the window, sound and pad on Linux and macOS).
 
 It is part of the pcrecomp family and follows its house style (repo rules,
 section 10): the toolkit ships, the output never does.
 
 ## Status
 
-**v0.1.0 — alpha. Both games boot, play, and pass their conformance runs.**
+**v0.2.0 — alpha. Both games boot, play, and pass their conformance runs, on Windows and Linux.**
 
 | | Aliens of Gold | Planet Strike |
 |---|---|---|
@@ -44,6 +44,8 @@ section 10): the toolkit ships, the output never does.
 | PC speaker | modelled, untested | modelled, untested |
 | Saving and loading | ✅ | ✅ |
 | Windowed play (real time, on a virtual monitor) | ✅ | ✅ |
+| Linux (SDL2): conformance, window, setup from scratch | ✅ | ✅ |
+| macOS (SDL2): builds in CI | untested on a Mac | untested on a Mac |
 | Mouse (raw input) | implemented, untested | implemented, untested |
 | Gamepad (XInput, as keys) | implemented, untested | implemented, untested |
 | Full playthrough | not yet | not yet |
@@ -173,6 +175,14 @@ v2.1 or *Planet Strike* V1.01 should too (other versions are untested).
 
 ### Quick start
 
+The easiest way: download the installer for your system from the
+[latest release](https://github.com/sp00nznet/blakestone/releases/latest)
+(Windows, Linux, macOS). Point it at your copy of either game; it fetches this
+repository and the toolkit, builds both games from your files, and gives you a
+Play button for each. Nothing from the games is in the download.
+
+Or by hand, on **Windows**:
+
 1. Download this repository (Code → Download ZIP) and unzip it anywhere.
 2. Double-click **`Setup.cmd`**.
 
@@ -184,6 +194,13 @@ folder, lifts and builds both games, and leaves two shortcuts here:
 **Blake Stone - Aliens of Gold** and **Blake Stone - Planet Strike**. If anything
 fails it stops with one sentence on what to do and writes the details to
 `setup.log`; running it again carries on from where it stopped.
+
+On **Linux or macOS**: `./setup.sh` (or `./setup.sh /path/to/the/game`). It
+does the same five steps with gcc or clang and SDL2. On Linux, if a tool is
+missing it names the packages to install (Debian/Ubuntu: `sudo apt install gcc
+g++ cmake python3 git pkg-config libsdl2-dev`); on macOS it installs them with
+Homebrew. It leaves `Blake Stone - Aliens of Gold.sh` and `Blake Stone - Planet
+Strike.sh` here. The game files may be any case (`vswap.bs6` is fine).
 
 ### Step by step
 
@@ -300,7 +317,9 @@ and the lifted C) and `saves\` are all gitignored.
 - `src/` — the DOS machine the lifted code runs on. See
   [docs/architecture.md](docs/architecture.md).
 - `py tools\conformance.py` — the conformance harness;
-  `build\Release\selftest.exe` — the hardware models without game data.
+  `build\Release\selftest.exe` — the hardware models without game data. On
+  Linux and macOS it runs the builds in `build-linux/` or `build-macos/`
+  (`BSTONE_BUILD` picks another folder).
   See [docs/conformance.md](docs/conformance.md).
 - `cmake -B build-dbg -DBSTONE_TRACE=ON` — a debug build with symbolised guest
   call stacks; see [docs/lifting.md](docs/lifting.md#debugging-kit).

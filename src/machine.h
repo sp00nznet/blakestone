@@ -8,6 +8,15 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef _WIN32                       /* Linux, macOS: the few MSVC names, POSIX underneath */
+#include <strings.h>
+#include <sys/stat.h>
+#define _stricmp strcasecmp
+#define _popen popen
+#define _pclose pclose
+#define _mkdir(p) mkdir((p), 0755)
+#endif
+
 extern CPU g_cpu;
 
 typedef struct {

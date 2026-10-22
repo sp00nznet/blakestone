@@ -33,7 +33,7 @@ $PcrecompRef = "fc852e3"
 function Say($m) { Write-Host $m; $m | Out-File $Log -Append -Encoding utf8 }
 function Fail($m) {
     Write-Host ""
-    Write-Host $m -ForegroundColor Red
+    Write-Host "Setup stopped: $m" -ForegroundColor Red
     Write-Host "Details are in $Log"
     exit 1
 }
@@ -54,7 +54,7 @@ function Ask($q) {
 function Have($exe) { return [bool](Get-Command $exe -ErrorAction SilentlyContinue) }
 
 # ---- 1. tools ---------------------------------------------------------------
-Say "Checking tools..."
+Say "[1/5] Checking the tools"
 $need = @()
 # `python` may be the Microsoft Store alias that only opens the Store; the
 # py launcher is what a python.org install puts on PATH.
@@ -118,6 +118,7 @@ function Find-Game($g) {
     return $null
 }
 
+Say "[2/5] Copying your games into original\"
 $found = @()
 foreach ($g in $games) {
     $dest = Join-Path $Root "original\$($g.id)"
@@ -138,6 +139,7 @@ foreach ($g in $games) {
 if (-not $found.Count) { Fail "No copy of either game was found. Run Setup again and give the folder that holds BS_AOG.EXE or BS_FIRE.EXE." }
 
 # ---- 3. the toolkit ----------------------------------------------------------------
+Say "[3/5] Fetching the pcrecomp toolkit"
 if ($env:PCRECOMP_HOME -and (Test-Path "$env:PCRECOMP_HOME\tools\lift\lift16.py")) {
     $pcr = $env:PCRECOMP_HOME
 } else {
@@ -145,11 +147,14 @@ if ($env:PCRECOMP_HOME -and (Test-Path "$env:PCRECOMP_HOME\tools\lift\lift16.py"
     if (-not (Test-Path "$pcr\tools\lift\lift16.py")) {
         Run "fetching pcrecomp into $pcr" { git clone --quiet $PcrecompUrl $pcr }
     }
-    Run "checking out pcrecomp $PcrecompRef" { git -C $pcr fetch --quiet origin; git -C $pcr checkout --quiet $PcrecompRef }
+    if (Test-Path "$pcr\.git") {
+        Run "checking out pcrecomp $PcrecompRef" { git -C $pcr fetch --quiet origin; git -C $pcr checkout --quiet $PcrecompRef }
+    }
 }
 $env:PCRECOMP_HOME = $pcr
 
 # ---- 4. lift + build -------------------------------------------------------------
+Say "[4/5] Lifting and building (several minutes: the lifted C is large)"
 foreach ($g in $found) {
     Run "lifting $($g.name) to C" { & $py tools\lift.py $g.id }
 }
@@ -157,6 +162,7 @@ Run "configuring the build" { cmake -B build -G "Visual Studio 17 2022" -A x64 "
 Run "compiling (a few minutes: the lifted C is large)" { cmake --build build --config Release -- -m }
 
 # ---- 5. shortcuts -----------------------------------------------------------------
+Say "[5/5] Making a shortcut for each game"
 $shell = New-Object -ComObject WScript.Shell
 foreach ($g in $found) {
     $exe = Join-Path $Root "build\Release\bstone_$($g.id).exe"

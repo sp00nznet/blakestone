@@ -6,7 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-22
+
 ### Added
+- Linux and macOS: a native build with SDL2 for the window, sound, keys,
+  mouse and pad (`host.c`), and `setup.sh`, the same five steps as
+  `Setup.cmd`. On Linux, conformance is 22/22 and 17/17, as on Windows, and
+  a from-scratch `setup.sh` run (toolkit fetched, games lifted and built)
+  takes about two minutes. Game files may be any case. macOS builds in CI but
+  has not been run on a Mac.
+- An installer for Windows, Linux and macOS (recomp-launcher), attached to
+  each release: point it at either game and it builds both from your copy.
+- CI builds and runs the selftest on Windows, Linux and macOS.
 - A longer conformance mission (*Aliens of Gold*): kill the first two guards,
   pick up the gun one drops, open the elevator and press its switch, which
   brings up the floor panel. It is steered by `--route`, a test autopilot that
@@ -90,5 +101,6 @@ Needs these pcrecomp changes, made for these games and opened as separate PRs:
 - recomp16 `cpu.h`: 32-bit `ESI EDI EBP ESP`. (pcrecomp#38)
 - lift16: self-modified immediates and self-modified branch opcodes. (pcrecomp#39)
 
-[Unreleased]: https://github.com/sp00nznet/blakestone/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/sp00nznet/blakestone/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/sp00nznet/blakestone/releases/tag/v0.2.0
 [0.1.0]: https://github.com/sp00nznet/blakestone/releases/tag/v0.1.0

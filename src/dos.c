@@ -22,6 +22,9 @@
 #include <windows.h>
 #include <direct.h>
 #include <io.h>
+#else
+#include <dirent.h>
+#include <unistd.h>
 #endif
 
 #define STUB_SEG 0xF000          /* the "BIOS" every unhooked vector points into */
@@ -117,6 +120,15 @@ static const char *base_name(const char *p)
 static void join(char *out, size_t n, const char *dir, const char *name)
 {
     snprintf(out, n, "%s/%s", dir, name);
+#ifndef _WIN32
+    /* DOS names are any case; a Linux copy of the game may be lower case */
+    struct stat st;
+    if (stat(out, &st) == 0) return;
+    DIR *d = opendir(dir);
+    for (struct dirent *e; d && (e = readdir(d)) != NULL; )
+        if (!strcasecmp(e->d_name, name)) { snprintf(out, n, "%s/%s", dir, e->d_name); break; }
+    if (d) closedir(d);
+#endif
 }
 
 static int exists(const char *p) { struct stat st; return stat(p, &st) == 0 && !(st.st_mode & S_IFDIR); }
@@ -187,6 +199,21 @@ static void find_scan(const char *dir, const char *pat)
         }
     } while (FindNextFileA(h, &fd));
     FindClose(h);
+#else
+    DIR *d = opendir(dir);
+    for (struct dirent *e; d && (e = readdir(d)) != NULL; ) {
+        char p[512]; struct stat st;
+        snprintf(p, sizeof p, "%s/%s", dir, e->d_name);
+        if (stat(p, &st) != 0 || S_ISDIR(st.st_mode)) continue;
+        if (strlen(e->d_name) > 12 || !wild_match(pat, e->d_name)) continue;
+        int dup = 0;
+        for (int i = 0; i < find_n; i++) if (!strcasecmp(find_names[i], e->d_name)) dup = 1;
+        if (!dup && find_n < 256) {
+            for (int k = 0; k < 13; k++) find_names[find_n][k] = (char)toupper((unsigned char)e->d_name[k]);
+            find_n++;
+        }
+    }
+    if (d) closedir(d);
 #endif
 }
 
@@ -257,9 +284,13 @@ static int key_wait(int peek, uint16_t *out)
         }
         if (peek) return 0;
         recomp_tick(&g_cpu);
+        if (!g_opt.headless || g_opt.realtime) {
 #ifdef _WIN32
-        if (!g_opt.headless || g_opt.realtime) Sleep(1);
+            Sleep(1);
+#else
+            usleep(1000);
 #endif
+        }
     }
 }
 
@@ -451,8 +482,11 @@ void dos_int21(CPU *c)
         if (h == 1 || h == 2) { con_write(&g_cpu.mem[seg_off(c->ds, c->dx)], n); c->ax = n; CF_CLR(c); break; }
         if (h >= MAXH || !fh[h]) { fail(c, 6); break; }
         if (n == 0) {                                /* truncate at the current position */
+            fflush(fh[h]);
 #ifdef _WIN32
-            fflush(fh[h]); _chsize(_fileno(fh[h]), ftell(fh[h]));
+            _chsize(_fileno(fh[h]), ftell(fh[h]));
+#else
+            if (ftruncate(fileno(fh[h]), ftell(fh[h]))) {}
 #endif
             c->ax = 0; CF_CLR(c); break;
         }
@@ -495,7 +529,8 @@ void dos_int21(CPU *c)
         int d = _dup(_fileno(fh[c->bx]));
         FILE *f = d >= 0 ? _fdopen(d, "r+b") : NULL;
 #else
-        FILE *f = NULL;
+        int d = dup(fileno(fh[c->bx]));
+        FILE *f = d >= 0 ? fdopen(d, "r+b") : NULL;
 #endif
         int h = f ? new_handle(f) : -1;
         if (h < 0) { fail(c, 4); break; }

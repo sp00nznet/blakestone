@@ -28,6 +28,15 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASELINE = os.path.join(ROOT, 'tests', 'conformance_baseline.json')
+
+
+def exe_of(game):
+    # BSTONE_BUILD: the build folder; else what setup makes: build/Release, build-linux, build-macos
+    if os.name == 'nt':
+        d = os.environ.get('BSTONE_BUILD') or os.path.join(ROOT, 'build', 'Release')
+        return os.path.join(d, f'bstone_{game}.exe')
+    d = os.environ.get('BSTONE_BUILD') or os.path.join(ROOT, 'build-macos' if sys.platform == 'darwin' else 'build-linux')
+    return os.path.join(d, f'bstone_{game}')
 GAMES = {'aog': 'BS_AOG.EXE', 'ps': 'BS_FIRE.EXE'}
 
 # Title, menus, mission and difficulty select, briefing pages, then play:
@@ -68,7 +77,7 @@ def wav_rms(path):
 
 
 def run(game, out, seconds, keys, shots, trace=False, extra=()):
-    exe = os.path.join(ROOT, 'build', 'Release', f'bstone_{game}.exe')
+    exe = exe_of(game)
     save = os.path.join(out, 'save')
     os.makedirs(save, exist_ok=True)
     shot_arg = ','.join(f'{ms}:{os.path.join(out, name + ".bmp")}' for name, ms in shots.items())
@@ -240,7 +249,7 @@ def main():
     totals, failed_regression = {}, False
     for game, exe in GAMES.items():
         have_data = os.path.exists(os.path.join(ROOT, 'original', game, exe))
-        have_exe = os.path.exists(os.path.join(ROOT, 'build', 'Release', f'bstone_{game}.exe'))
+        have_exe = os.path.exists(exe_of(game))
         if not (have_data and have_exe):
             print(f'{game}: SKIP -- needs original/{game}/{exe} (your own copy) and a build; '
                   'see README, Getting Started')

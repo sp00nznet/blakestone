@@ -1,0 +1,21 @@
+{
+  "title": "Blake Stone: Aliens of Gold & Planet Strike",
+  "repo": "sp00nznet/blakestone",
+  "accent": "#c8a032",
+  "note": {
+    "windows": "The first build takes about 10 minutes and under 1 GB. Python, CMake, Git and the Visual Studio Build Tools (about 2 GB) are installed if they are missing. Point it at either game; it finds the other in your Steam library.",
+    "darwin": "The first build takes about 10 minutes. It needs Homebrew and Xcode's command line tools, and installs CMake and SDL2 with Homebrew. Point it at either game; it finds the other in the same folder or your Steam library.",
+    "default": "The first build takes a few minutes. It needs gcc, CMake, Python 3, git and SDL2's development files from your package manager; if any are missing it says which, with the command to install them. Point it at either game; it finds the other in the same folder or your Steam library."
+  },
+  "game": {
+    "name": "Blake Stone",
+    "files": ["BS_AOG.EXE|bs_aog.exe|BS_FIRE.EXE|bs_fire.exe"],
+    "steam": "Blake Stone Aliens of Gold/Blake Stone - Aliens of Gold"
+  },
+  "sources": [{ "repo": "sp00nznet/pcrecomp", "ref": "fc852e31765e8661cdde4326f2e2335090a05c30", "dir": "pcrecomp" }],
+  "setup": {
+    "windows": ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts\\setup.ps1", "-Yes", "-GameDir", "{game}"],
+    "default": ["bash", "setup.sh", "--yes", "--game-dir", "{game}"]
+  },
+  "play": "Blake Stone*"
+}

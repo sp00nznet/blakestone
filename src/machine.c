@@ -21,6 +21,8 @@
 #include <dbghelp.h>
 #pragma comment(lib, "dbghelp.lib")
 #endif
+#else
+#include <time.h>
 #endif
 
 CPU g_cpu;
@@ -38,7 +40,9 @@ uint64_t host_us(void)
     QueryPerformanceCounter(&c);
     return (uint64_t)(c.QuadPart / f.QuadPart * 1000000 + (c.QuadPart % f.QuadPart) * 1000000 / f.QuadPart);
 #else
-    return 0;
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (uint64_t)t.tv_sec * 1000000 + (uint64_t)t.tv_nsec / 1000;
 #endif
 }
 

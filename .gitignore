@@ -40,3 +40,6 @@ __pycache__/
 *.user
 setup.log
 /screenshots/
+# the launchers setup makes
+/*.lnk
+/Blake Stone - *.sh
